@@ -11,8 +11,17 @@ android {
         applicationId = "com.raza.ai"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
+
+        // Optional build-time default backend URL: -PrazaApiBaseUrl=https://your-host
+        // Empty by default: the app then shows "cloud AI not set up" instead of guessing.
+        val defaultApi = (project.findProperty("razaApiBaseUrl") as String?) ?: ""
+        buildConfigField("String", "DEFAULT_API_BASE_URL", "\"$defaultApi\"")
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     // Keep Java and Kotlin bytecode targets identical.
@@ -25,4 +34,13 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+}
+
+dependencies {
+    // Encrypted storage for the backend access token.
+    implementation("androidx.security:security-crypto:1.0.0")
+
+    testImplementation("junit:junit:4.13.2")
+    // Real org.json for JVM unit tests (the android.jar copy is only a stub).
+    testImplementation("org.json:json:20240303")
 }
