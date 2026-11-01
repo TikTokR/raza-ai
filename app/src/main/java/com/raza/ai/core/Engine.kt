@@ -56,7 +56,7 @@ interface DeviceInfo {
     fun batteryText(): String?
 }
 
-interface Connectivity {
+fun interface Connectivity {
     fun isOnline(): Boolean
 }
 
