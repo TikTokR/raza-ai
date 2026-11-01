@@ -1,0 +1,12 @@
+{
+  "name": "raza-ai-backend",
+  "version": "1.0.0",
+  "description": "RAZA AI secure assistant backend (/api/v1)",
+  "type": "module",
+  "private": true,
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test \"test/*.test.js\""
+  }
+}

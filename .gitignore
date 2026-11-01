@@ -4,3 +4,5 @@
 /build
 /app/build
 *.iml
+node_modules/
+.env
