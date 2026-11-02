@@ -82,7 +82,26 @@ jobs:
           grep -Fq 'targetCompatibility = JavaVersion.VERSION_17' app/build.gradle.kts
           grep -Fq 'jvmTarget = "17"' app/build.gradle.kts
 
+      - name: Set up Node 22 (for the API integration test)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Start the real backend (no AI provider key) for API integration tests
+        run: |
+          cd backend
+          RAZA_API_TOKENS="ci-user-token-0123456789:user,ci-admin-token-0123456789:admin" PORT=18080 ANTHROPIC_API_KEY= \
+            nohup node src/server.js > "$RUNNER_TEMP/backend.log" 2>&1 &
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:18080/api/v1/health && break || sleep 1
+          done
+          curl -fsS http://127.0.0.1:18080/api/v1/health
+
       - name: Unit tests
+        env:
+          RAZA_IT_URL: http://127.0.0.1:18080
+          RAZA_IT_TOKEN: ci-user-token-0123456789
+          RAZA_IT_NO_PROVIDER: "1"
         run: gradle :app:testDebugUnitTest --stacktrace
 
       - name: Summarize unit test results (fails if no tests ran)
@@ -103,6 +122,14 @@ jobs:
           print(f"UNIT TEST TOTAL: files={len(files)} tests={total} skipped={skipped} failures={failed} errors={errors}")
           if total == 0:
               print("ERROR: no unit tests were executed")
+              sys.exit(1)
+          it = [p for p in files if p.endswith("BackendIntegrationTest.xml")]
+          if not it:
+              print("ERROR: BackendIntegrationTest did not run")
+              sys.exit(1)
+          m = re.search(r'tests="(\d+)" skipped="(\d+)"', open(it[0], encoding="utf8").read(3000))
+          if m.group(2) != "0":
+              print(f"ERROR: {m.group(2)} integration test(s) were skipped in CI")
               sys.exit(1)
           EOF
 
