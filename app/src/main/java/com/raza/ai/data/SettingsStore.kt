@@ -37,6 +37,11 @@ class SettingsStore(ctx: Context) {
         get() = p.getString("api_base_url", null) ?: BuildConfig.DEFAULT_API_BASE_URL
         set(v) = p.edit().putString("api_base_url", v).apply()
 
+    /** User switch: when off the assistant never contacts the backend, even when online. */
+    var cloudAiEnabled: Boolean
+        get() = p.getBoolean("cloud_ai_enabled", true)
+        set(v) = p.edit().putBoolean("cloud_ai_enabled", v).apply()
+
     var preferOfflineSpeech: Boolean
         get() = p.getBoolean("prefer_offline_speech", false)
         set(v) = p.edit().putBoolean("prefer_offline_speech", v).apply()

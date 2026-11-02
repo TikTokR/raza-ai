@@ -41,8 +41,12 @@ object ConfirmationReply {
  */
 class ConfirmationManager(
     private val clock: () -> Long = { System.currentTimeMillis() },
-    private val timeoutMs: Long = 30_000L,
+    private val timeoutMs: Long = DEFAULT_TIMEOUT_MS,
 ) {
+    companion object {
+        const val DEFAULT_TIMEOUT_MS = 30_000L
+    }
+
     data class Pending(
         val id: Long,
         val action: DeviceAction,

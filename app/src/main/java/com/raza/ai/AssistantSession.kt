@@ -199,6 +199,11 @@ class AssistantSession(
             return
         }
 
+        if (!settings.cloudAiEnabled && LocalCommandParser.parse(text) is ParseResult.NoMatch) {
+            say("Cloud AI is switched off in Settings, so I can only run on-device commands, tasks and notes.")
+            return
+        }
+
         setPhase(Phase.PROCESSING)
         val language = settings.language
         io.execute {
@@ -320,6 +325,12 @@ class AssistantSession(
         if (phase == Phase.SPEAKING) setPhase(Phase.IDLE)
     }
 
+    /** Plays a short sample so the user can check the voice, volume and installed language data. */
+    fun sampleVoice(urdu: Boolean) {
+        val text = if (urdu) "السلام علیکم، میں رضا اے آئی ہوں۔ آواز کی جانچ۔" else "Hello, I am RAZA AI. This is a voice check."
+        if (!speakText(text, listen = false, force = true)) setPhase(Phase.IDLE)
+    }
+
     fun repeatLast() {
         if (lastReply.isBlank()) return
         speakText(lastReply, listen = false)
@@ -345,8 +356,8 @@ class AssistantSession(
     }
 
     /** Speaks if voice replies are on. Returns true if speech started. */
-    private fun speakText(text: String, listen: Boolean): Boolean {
-        if (!settings.voiceReplies) return false
+    private fun speakText(text: String, listen: Boolean, force: Boolean = false): Boolean {
+        if (!settings.voiceReplies && !force) return false
         return when (val r = speaker.speak(text, preferOffline = !connectivity.isOnline())) {
             Speaker.Result.Started -> {
                 listenAfterSpeak = listen
@@ -380,6 +391,11 @@ class AssistantSession(
     // ---- connection ----
 
     fun refreshConnection() {
+        if (!settings.cloudAiEnabled) {
+            connection = ConnectionState.Disabled
+            notifyChanged()
+            return
+        }
         val configured = UrlValidator.normalizeBase(settings.apiBaseUrl) != null
         if (!configured || !connectivity.isOnline()) {
             connection = ConnectionResolver.resolve(configured, connectivity.isOnline(), null)

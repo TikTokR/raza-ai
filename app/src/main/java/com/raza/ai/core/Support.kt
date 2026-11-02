@@ -86,6 +86,7 @@ object VoiceScore {
 sealed class ConnectionState(val label: String) {
     data object NotConfigured : ConnectionState("CLOUD AI: NOT SET UP")
     data object Offline : ConnectionState("OFFLINE: on-device commands only")
+    data object Disabled : ConnectionState("CLOUD AI: OFF (switched off in Settings)")
     data object Checking : ConnectionState("CLOUD AI: CHECKING...")
     data class Online(val version: String) : ConnectionState("ONLINE: backend v$version")
     data class Unreachable(val reason: String) : ConnectionState("CLOUD AI UNREACHABLE: $reason")
