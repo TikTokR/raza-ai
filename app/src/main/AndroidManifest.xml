@@ -1,17 +1,54 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Talk to your RAZA backend. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Know whether the phone is really online, so the app never pretends cloud AI works offline. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Voice commands and the wake phrase. Requested only when you use them. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Android requires these two for a foreground service that uses the microphone. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <!-- Show the "microphone is on" notification on Android 13+. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Lets the Clock app open with an alarm filled in (you still confirm it there). -->
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
+
     <queries>
-        <intent><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent>
+        <!-- Needed to find installed apps when you say "open <app>". -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <!-- Needed so Android shows speech recognition to this app on Android 11+. -->
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
     </queries>
-    <application android:allowBackup="false" android:label="RAZA AI" android:theme="@android:style/Theme.Material.NoActionBar" android:usesCleartextTraffic="false">
-        <activity android:name=".MainActivity" android:exported="true">
-            <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
+
+    <application
+        android:name=".RazaApp"
+        android:allowBackup="false"
+        android:label="RAZA AI"
+        android:theme="@android:style/Theme.Material.NoActionBar"
+        android:usesCleartextTraffic="false">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
         </activity>
-        <service android:name=".WakeWordService" android:exported="false" android:foregroundServiceType="microphone" />
+
+        <service
+            android:name=".WakeWordService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
     </application>
 </manifest>

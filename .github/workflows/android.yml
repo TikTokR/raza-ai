@@ -85,6 +85,27 @@ jobs:
       - name: Unit tests
         run: gradle :app:testDebugUnitTest --stacktrace
 
+      - name: Summarize unit test results (fails if no tests ran)
+        if: always()
+        run: |
+          python3 - <<'EOF'
+          import glob, re, sys
+          total = skipped = failed = errors = 0
+          files = sorted(glob.glob("app/build/test-results/testDebugUnitTest/TEST-*.xml"))
+          for p in files:
+              head = open(p, encoding="utf8").read(3000)
+              m = re.search(r'name="([^"]+)" tests="(\d+)" skipped="(\d+)" failures="(\d+)" errors="(\d+)"', head)
+              if not m:
+                  continue
+              n, t, s, f, e = m.groups()
+              total += int(t); skipped += int(s); failed += int(f); errors += int(e)
+              print(f"{n.split('.')[-1]:36} tests={t:>3} skipped={s} failures={f} errors={e}")
+          print(f"UNIT TEST TOTAL: files={len(files)} tests={total} skipped={skipped} failures={failed} errors={errors}")
+          if total == 0:
+              print("ERROR: no unit tests were executed")
+              sys.exit(1)
+          EOF
+
       - name: Lint (non-blocking report)
         continue-on-error: true
         run: gradle :app:lintDebug --stacktrace
