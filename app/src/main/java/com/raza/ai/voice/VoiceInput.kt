@@ -12,6 +12,7 @@ class VoiceInput(private val ctx: Context, private val cb: Callback) {
 
     interface Callback {
         fun onReady()
+        fun onLevel(rmsDb: Float)
         fun onPartial(text: String)
         fun onFinal(text: String)
         fun onError(code: Int)
@@ -28,7 +29,7 @@ class VoiceInput(private val ctx: Context, private val cb: Callback) {
         r.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) = cb.onReady()
             override fun onBeginningOfSpeech() {}
-            override fun onRmsChanged(rmsdB: Float) {}
+            override fun onRmsChanged(rmsdB: Float) = cb.onLevel(rmsdB)
             override fun onBufferReceived(buffer: ByteArray?) {}
             override fun onEndOfSpeech() {}
             override fun onPartialResults(partialResults: Bundle?) {

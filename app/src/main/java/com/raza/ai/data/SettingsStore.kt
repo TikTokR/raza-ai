@@ -41,6 +41,11 @@ class SettingsStore(ctx: Context) {
         get() = p.getBoolean("prefer_offline_speech", false)
         set(v) = p.edit().putBoolean("prefer_offline_speech", v).apply()
 
+    /** Save chat history on this phone (and use it as context). Default on; off deletes the saved copy. */
+    var rememberConversations: Boolean
+        get() = p.getBoolean("remember_conversations", true)
+        set(v) = p.edit().putBoolean("remember_conversations", v).apply()
+
     fun clearAll() = p.edit().clear().apply()
 
     companion object {

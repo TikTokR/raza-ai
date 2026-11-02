@@ -6,8 +6,11 @@ import android.app.KeyguardManager
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.Network
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import com.raza.ai.core.ActionLogEntry
+import com.raza.ai.core.AddResult
 import com.raza.ai.core.ApiClient
 import com.raza.ai.core.ApiConfig
 import com.raza.ai.core.AssistantEngine
@@ -15,15 +18,23 @@ import com.raza.ai.core.ConfirmationManager
 import com.raza.ai.core.ConnectionResolver
 import com.raza.ai.core.ConnectionState
 import com.raza.ai.core.ConversationHistory
+import com.raza.ai.core.ChatRecord
 import com.raza.ai.core.DeviceAction
+import com.raza.ai.core.HistoryItem
 import com.raza.ai.core.Languages
+import com.raza.ai.core.LocalCommand
 import com.raza.ai.core.LocalCommandParser
+import com.raza.ai.core.LocalCommands
+import com.raza.ai.core.NoteBook
 import com.raza.ai.core.Outcome
 import com.raza.ai.core.ParseResult
+import com.raza.ai.core.Persistence
 import com.raza.ai.core.RecognizerErrors
 import com.raza.ai.core.Source
+import com.raza.ai.core.TaskBook
 import com.raza.ai.core.UrlConnectionTransport
 import com.raza.ai.core.UrlValidator
+import com.raza.ai.data.LocalStores
 import com.raza.ai.data.SecureTokenStore
 import com.raza.ai.data.SettingsStore
 import com.raza.ai.device.ActionExecutor
@@ -61,19 +72,33 @@ class AssistantSession(
     var connection: ConnectionState = ConnectionState.Checking
         private set
 
+    /** Live microphone level (0..1) while listening. Used only to animate the waveform. */
+    var levelSink: ((Float) -> Unit)? = null
+
     /** Set by the visible Activity: shows Android's own lock-screen check. */
     var authLauncher: ((ConfirmationManager.Pending) -> Unit)? = null
 
     private val connectivity = AndroidConnectivity(app)
     private val confirmations = ConfirmationManager()
     private val api = ApiClient({ ApiConfig(settings.apiBaseUrl, tokens.get()) }, UrlConnectionTransport())
+    private val deviceInfo = AndroidDeviceInfo(app)
     private val keyguard: KeyguardManager? = app.getSystemService(KeyguardManager::class.java)
-    private val history = ConversationHistory()
+    private val stores = LocalStores(app)
+    private val diskIo: ExecutorService = Executors.newSingleThreadExecutor()
+
+    /** The user's own to-do list, saved notes and a log of what RAZA did on the phone. All local. */
+    val tasks = TaskBook(Persistence.tasksFromJson(stores.tasks.read()))
+    val notes = NoteBook(Persistence.notesFromJson(stores.notes.read()))
+    val actionLog: MutableList<ActionLogEntry> = Persistence.logFromJson(stores.actionLog.read()).toMutableList()
+
+    private val history = ConversationHistory(preamble = {
+        notes.asContext()?.let { listOf(HistoryItem("user", it), HistoryItem("assistant", "Understood.")) } ?: emptyList()
+    })
     private val engine = AssistantEngine(
         api = api,
         confirmations = confirmations,
         connectivity = connectivity,
-        deviceInfo = AndroidDeviceInfo(app),
+        deviceInfo = deviceInfo,
         history = history,
         authAvailable = { keyguard?.isDeviceSecure == true },
     )
@@ -85,6 +110,10 @@ class AssistantSession(
             override fun onReady() {
                 partial = ""
                 notifyChanged()
+            }
+
+            override fun onLevel(rmsDb: Float) {
+                levelSink?.invoke(((rmsDb + 2f) / 12f).coerceIn(0f, 1f))
             }
 
             override fun onPartial(text: String) {
@@ -111,6 +140,7 @@ class AssistantSession(
     private val warned = HashSet<String>()
 
     init {
+        loadSavedConversation()
         registerNetworkCallback()
         refreshConnection()
     }
@@ -156,10 +186,17 @@ class AssistantSession(
                 // The proposal vanished while we were looking: treat the text as a normal message.
                 ConfirmationManager.Decision.NothingPending -> Unit
                 else -> {
+                    if (d === ConfirmationManager.Decision.Rejected) logAction(open.action.describe(), false, "Cancelled by you.")
+                    if (d === ConfirmationManager.Decision.Expired) logAction(open.action.describe(), false, "Timed out. Nothing was done.")
                     handleDecision(d, byVoice)
                     return
                 }
             }
+        }
+
+        LocalCommands.parse(text)?.let {
+            handleLocal(it)
+            return
         }
 
         setPhase(Phase.PROCESSING)
@@ -194,7 +231,9 @@ class AssistantSession(
     }
 
     fun confirmNo() {
+        val p = confirmations.current()
         handleDecision(confirmations.reject(), false)
+        if (p != null) logAction(p.action.describe(), false, "Cancelled by you.")
     }
 
     private fun handleDecision(d: ConfirmationManager.Decision, byVoice: Boolean) {
@@ -239,6 +278,7 @@ class AssistantSession(
     private fun runAction(action: DeviceAction) {
         setPhase(Phase.PROCESSING)
         val result = executor.execute(action)
+        logAction(action.describe(), result.ok, result.message)
         say(result.message)
     }
 
@@ -374,6 +414,138 @@ class AssistantSession(
         }
     }
 
+    // ---- tasks, notes, memory ----
+
+    private fun handleLocal(c: LocalCommand) {
+        when (c) {
+            is LocalCommand.AddTask -> when (val r = tasks.add(c.title)) {
+                is AddResult.Added -> {
+                    saveTasks()
+                    say("Added to your task list: ${r.item.title}. For a timed reminder, ask me to set an alarm.")
+                }
+                is AddResult.Rejected -> say(r.reason)
+            }
+            is LocalCommand.Remember -> when (val r = notes.add(c.note)) {
+                is AddResult.Added -> {
+                    saveNotes()
+                    say("Okay, I'll remember that. You can view or delete notes in Settings.")
+                }
+                is AddResult.Rejected -> say(r.reason)
+            }
+            is LocalCommand.CompleteTask -> {
+                val done = tasks.completeByNumber(c.number)
+                if (done != null) {
+                    saveTasks()
+                    say("Marked done: ${done.title}.")
+                } else {
+                    say("I couldn't find open task number ${c.number}.")
+                }
+            }
+            LocalCommand.ShowTasks -> say(LocalCommands.speakTasks(tasks.open()))
+            LocalCommand.ShowNotes -> say(LocalCommands.speakNotes(notes.all()))
+        }
+    }
+
+    /** Returns an error message, or null on success. */
+    fun addTask(title: String): String? = when (val r = tasks.add(title)) {
+        is AddResult.Added -> { saveTasks(); notifyChanged(); null }
+        is AddResult.Rejected -> r.reason
+    }
+
+    fun setTaskDone(id: Long, done: Boolean) { tasks.setDone(id, done); saveTasks(); notifyChanged() }
+    fun removeTask(id: Long) { tasks.remove(id); saveTasks(); notifyChanged() }
+    fun clearDoneTasks() { tasks.clearDone(); saveTasks(); notifyChanged() }
+
+    /** Returns an error message, or null on success. */
+    fun addNote(text: String): String? = when (val r = notes.add(text)) {
+        is AddResult.Added -> { saveNotes(); notifyChanged(); null }
+        is AddResult.Rejected -> r.reason
+    }
+
+    fun removeNote(id: Long) { notes.remove(id); saveNotes(); notifyChanged() }
+
+    private fun saveTasks() {
+        val json = Persistence.tasksToJson(tasks.all())
+        diskIo.execute { stores.tasks.write(json) }
+    }
+
+    private fun saveNotes() {
+        val json = Persistence.notesToJson(notes.all())
+        diskIo.execute { stores.notes.write(json) }
+    }
+
+    private fun logAction(summary: String, ok: Boolean, message: String) {
+        actionLog.add(ActionLogEntry(System.currentTimeMillis(), summary, ok, message))
+        while (actionLog.size > MAX_LOG) actionLog.removeAt(0)
+        val json = Persistence.logToJson(actionLog)
+        diskIo.execute { stores.actionLog.write(json) }
+    }
+
+    private fun saveChat() {
+        if (!settings.rememberConversations) return
+        val records = messages.filter { it.role != Role.SYSTEM }
+            .map { ChatRecord(if (it.role == Role.USER) "user" else "assistant", it.text, it.time) }
+        val json = Persistence.chatToJson(Persistence.newest(records, MAX_SAVED_CHAT))
+        diskIo.execute { stores.chat.write(json) }
+    }
+
+    private fun loadSavedConversation() {
+        if (!settings.rememberConversations) return
+        val saved = Persistence.chatFromJson(stores.chat.read())
+        for (r in saved) {
+            messages.add(ChatMessage(if (r.role == "user") Role.USER else Role.ASSISTANT, r.text, null, r.time))
+        }
+        history.restore(saved.map { HistoryItem(it.role, it.text) })
+    }
+
+    // ---- data controls (Settings > Privacy) ----
+
+    fun deleteConversation() {
+        clearConversation()
+        diskIo.execute { stores.chat.delete() }
+    }
+
+    fun deleteTasks() { tasks.clear(); diskIo.execute { stores.tasks.delete() }; notifyChanged() }
+    fun deleteNotes() { notes.clear(); diskIo.execute { stores.notes.delete() }; notifyChanged() }
+    fun deleteActionLog() { actionLog.clear(); diskIo.execute { stores.actionLog.delete() }; notifyChanged() }
+
+    /** Wipes everything this app stores: chat, tasks, notes, log, settings and the saved token. */
+    fun eraseEverything() {
+        speaker.stop()
+        voice.cancel()
+        confirmations.reject()
+        deleteConversation()
+        deleteTasks()
+        deleteNotes()
+        deleteActionLog()
+        tokens.clear()
+        settings.clearAll()
+        refreshConnection()
+    }
+
+    fun storedDataSummary(): String {
+        val chatCount = messages.count { it.role != Role.SYSTEM }
+        return buildString {
+            appendLine("Saved on this phone only:")
+            appendLine("- Chat messages: $chatCount" + if (settings.rememberConversations) "" else " (saving is off)")
+            appendLine("- Tasks: ${tasks.all().size}")
+            appendLine("- Notes you asked me to remember: ${notes.all().size}")
+            appendLine("- Action log entries: ${actionLog.size}")
+            appendLine("- Settings: language, voice, wake phrase, backend address")
+            append("- Backend access token: " + if (tokens.get().isNotEmpty()) "saved (encrypted)" else "not saved")
+        }
+    }
+
+    /** Label/value rows for the dashboard. */
+    fun systemInfo(): List<Pair<String, String>> = listOf(
+        "Battery" to (deviceInfo.batteryText() ?: "unknown"),
+        "Network" to if (connectivity.isOnline()) "online" else "offline",
+        "Time" to deviceInfo.timeText(),
+        "Android" to "${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
+        "Device" to "${Build.MANUFACTURER} ${Build.MODEL}",
+        "App" to "RAZA AI ${BuildConfig.VERSION_NAME}",
+    )
+
     // ---- helpers ----
 
     fun clearConversation() {
@@ -392,6 +564,7 @@ class AssistantSession(
     private fun addMessage(m: ChatMessage) {
         messages.add(m)
         while (messages.size > MAX_MESSAGES) messages.removeAt(0)
+        if (m.role != Role.SYSTEM) saveChat()
         notifyChanged()
     }
 
@@ -403,5 +576,7 @@ class AssistantSession(
 
     companion object {
         private const val MAX_MESSAGES = 200
+        private const val MAX_SAVED_CHAT = 100
+        private const val MAX_LOG = 100
     }
 }

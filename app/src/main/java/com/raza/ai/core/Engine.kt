@@ -30,8 +30,14 @@ object PlanMapper {
     }
 }
 
-/** Short rolling conversation context sent to the backend. Held in memory only. */
-class ConversationHistory(private val maxItems: Int = 20) {
+/**
+ * Short rolling conversation context sent to the backend. [preamble] adds a fixed opening pair
+ * (the user's saved notes). The total never exceeds [maxItems], which matches the backend limit.
+ */
+class ConversationHistory(
+    private val maxItems: Int = 20,
+    private val preamble: () -> List<HistoryItem> = { emptyList() },
+) {
     private val items = ArrayDeque<HistoryItem>()
 
     @Synchronized
@@ -43,8 +49,30 @@ class ConversationHistory(private val maxItems: Int = 20) {
         while (items.isNotEmpty() && items.first().role != "user") items.removeFirst()
     }
 
+    /** Loads previously saved turns (oldest first). Anything that breaks user/assistant order is dropped. */
     @Synchronized
-    fun snapshot(): List<HistoryItem> = items.toList()
+    fun restore(saved: List<HistoryItem>) {
+        items.clear()
+        var expectUser = true
+        for (h in saved) {
+            val want = if (expectUser) "user" else "assistant"
+            if (h.role == want) {
+                items.addLast(h)
+                expectUser = !expectUser
+            }
+        }
+        if (items.isNotEmpty() && items.last().role == "user") items.removeLast()
+        while (items.size > maxItems) items.removeFirst()
+        while (items.isNotEmpty() && items.first().role != "user") items.removeFirst()
+    }
+
+    @Synchronized
+    fun snapshot(): List<HistoryItem> {
+        val pre = preamble().take(2)
+        var body = items.toList().takeLast(maxItems - pre.size)
+        while (body.isNotEmpty() && body.first().role != "user") body = body.drop(1)
+        return pre + body
+    }
 
     @Synchronized
     fun clear() = items.clear()
