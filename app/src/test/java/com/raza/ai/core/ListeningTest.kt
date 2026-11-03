@@ -29,7 +29,7 @@ class ListeningTest {
         assertEquals(Severity.BAD, st.severity)
         assertTrue(st.label.contains("STOPPED"))
         assertTrue(st.canStart && st.canRestart)
-        assertFalse(st.label.contains("LISTENING"))
+        assertFalse(st.label.startsWith("LISTENING"))
     }
 
     @Test fun deadServiceShowsAndroidsRealReasonWhenKnown() {

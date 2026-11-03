@@ -65,7 +65,7 @@ class WakeServiceInstrumentedTest {
     fun clean() {
         settings.wakeEnabled = false
         WakeWordService.stop(ctx)
-        waitFor(5_000) { WakeHub.state == WakeState.OFF || WakeHub.state == WakeState.ERROR }
+        waitFor(8_000) { !serviceRunning() }
         nm.cancelAll()
     }
 

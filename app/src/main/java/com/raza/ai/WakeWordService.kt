@@ -54,6 +54,7 @@ class WakeWordService : Service(), WakeHub.Control {
     private var pausedByUser = false
     private var usingOnDevice = false
     private var onDeviceBroken = false
+    private var lastStartId = 0
 
     private val listenRunnable = Runnable { listen() }
     private val commandTimeout = Runnable {
@@ -73,6 +74,7 @@ class WakeWordService : Service(), WakeHub.Control {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        lastStartId = startId
         when (intent?.action) {
             ACTION_STOP -> shutdown(byUser = true)
             ACTION_USER_PAUSE -> userPause()
@@ -88,7 +90,7 @@ class WakeWordService : Service(), WakeHub.Control {
     /** Called when the system recreates the service with no intent. */
     private fun recoverAfterKill() {
         if (!settings.wakeEnabled) {
-            stopSelf()
+            stopSelf(lastStartId)
             return
         }
         // startWake() posts the honest "tap to turn on" notice if Android will not let a background service use the mic.
@@ -115,7 +117,7 @@ class WakeWordService : Service(), WakeHub.Control {
         if (!machine.start(granted)) { // no permission: machine records the error
             publish()
             WakeNotifications.resumePrompt(this, (machine.error ?: "Microphone permission is missing.") + " Open RAZA AI to fix it.")
-            stopSelf()
+            stopSelf(lastStartId)
             return
         }
         if (!inForeground) {
@@ -123,14 +125,14 @@ class WakeWordService : Service(), WakeHub.Control {
             machine.onError(msg)
             publish()
             WakeNotifications.resumePrompt(this, "$msg Tap to turn listening back on.")
-            stopSelf()
+            stopSelf(lastStartId)
             return
         }
         WakeNotifications.clearResumePrompt(this)
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
             machine.onError("Speech recognition is not available on this phone.")
             publish()
-            stopSelf()
+            stopSelf(lastStartId)
             return
         }
         machine.onReady()
@@ -163,7 +165,7 @@ class WakeWordService : Service(), WakeHub.Control {
         WakeHub.engine = ""
         WakeHub.publish(WakeState.OFF, null)
         stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+        stopSelf(lastStartId)
     }
 
     /** The app was swiped away from Recent Apps. The service keeps running on purpose; nothing to do. */
@@ -326,7 +328,7 @@ class WakeWordService : Service(), WakeHub.Control {
         publish()
         WakeNotifications.resumePrompt(this, "$message Tap to open RAZA AI.")
         stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+        stopSelf(lastStartId)
     }
 
     private fun scheduleListen(delayMs: Long) {
