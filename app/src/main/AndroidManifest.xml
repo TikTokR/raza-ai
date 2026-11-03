@@ -14,9 +14,18 @@
     <!-- Lets the Clock app open with an alarm filled in (you still confirm it there). -->
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
 
+    <!-- Optional: place a call directly instead of opening the dialer (only if you switch that on in Settings). -->
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+    <!-- Optional: find a contact's number when you say "WhatsApp Ali ...". Read only when you ask. -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
+    <uses-feature android:name="android.hardware.telephony" android:required="false" />
 
     <queries>
+        <package android:name="com.whatsapp" />
+        <package android:name="com.whatsapp.w4b" />
+        <package android:name="com.google.android.youtube" />
         <!-- Needed to find installed apps when you say "open <app>". -->
         <intent>
             <action android:name="android.intent.action.MAIN" />

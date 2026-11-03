@@ -51,6 +51,16 @@ class SettingsStore(ctx: Context) {
         get() = p.getBoolean("remember_conversations", true)
         set(v) = p.edit().putBoolean("remember_conversations", v).apply()
 
+    /** Place calls directly (needs the Phone permission). Off by default: the dialer opens and you press call. */
+    var directCalls: Boolean
+        get() = p.getBoolean("direct_calls", false)
+        set(v) = p.edit().putBoolean("direct_calls", v).apply()
+
+    /** Digits only, for numbers saved without a country code. Empty = use the SIM's country. */
+    var defaultCountryCode: String
+        get() = p.getString("default_cc", "") ?: ""
+        set(v) = p.edit().putString("default_cc", v.filter { it.isDigit() }.take(4)).apply()
+
     fun clearAll() = p.edit().clear().apply()
 
     companion object {

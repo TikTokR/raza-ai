@@ -39,6 +39,8 @@ import com.raza.ai.data.SecureTokenStore
 import com.raza.ai.data.SettingsStore
 import com.raza.ai.device.ActionExecutor
 import com.raza.ai.device.AndroidConnectivity
+import com.raza.ai.device.AndroidContactResolver
+import com.raza.ai.device.AndroidRegion
 import com.raza.ai.device.AndroidDeviceInfo
 import com.raza.ai.voice.Speaker
 import com.raza.ai.voice.VoiceInput
@@ -101,6 +103,9 @@ class AssistantSession(
         deviceInfo = deviceInfo,
         history = history,
         authAvailable = { keyguard?.isDeviceSecure == true },
+        contacts = AndroidContactResolver(app),
+        defaultCountryCode = { settings.defaultCountryCode.ifBlank { AndroidRegion(app).callingCode() } },
+        directCalls = { settings.directCalls },
     )
     private val executor = ActionExecutor(app)
     private val speaker = Speaker(app, settings) { main.post { onSpeechFinished() } }
@@ -216,6 +221,7 @@ class AssistantSession(
         when (outcome) {
             is Outcome.Reply -> say(outcome.text, source = outcome.source)
             is Outcome.Failure -> say(outcome.text)
+            is Outcome.Run -> runAction(outcome.action)
             is Outcome.Confirm -> {
                 val p = outcome.pending
                 val auth = if (p.needsAuth) " I will ask you to confirm with your phone's screen lock first." else ""
@@ -280,11 +286,16 @@ class AssistantSession(
         handleDecision(confirmations.confirm(id), false)
     }
 
+    /** Actions can wait on Android (and later on other apps' screens), so they never run on the main thread. */
     private fun runAction(action: DeviceAction) {
         setPhase(Phase.PROCESSING)
-        val result = executor.execute(action)
-        logAction(action.describe(), result.ok, result.message)
-        say(result.message)
+        io.execute {
+            val result = executor.execute(action)
+            main.post {
+                logAction(action.describe(), result.ok, result.message)
+                say(result.message)
+            }
+        }
     }
 
     // ---- voice ----

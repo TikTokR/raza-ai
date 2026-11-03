@@ -101,6 +101,8 @@ interface Host {
     fun micBlocked(): Boolean
     fun notificationsGranted(): Boolean
     fun withMic(action: () -> Unit)
+    fun has(permission: String): Boolean
+    fun ask(permission: String, onDone: (Boolean) -> Unit)
     fun toggleWake()
     fun toggleWakePause()
     fun openTab(index: Int)

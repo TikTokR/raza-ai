@@ -2,7 +2,9 @@ package com.raza.ai.device
 
 import android.content.ActivityNotFoundException
 import android.content.Context
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Handler
@@ -27,6 +29,9 @@ data class ExecResult(val ok: Boolean, val message: String)
  * Call/SMS only open the dialer or the SMS composer: the user presses call/send themselves.
  */
 class ActionExecutor(private val ctx: Context) {
+    private val whatsAppPackages = listOf("com.whatsapp", "com.whatsapp.w4b")
+    private val youTubePackage = "com.google.android.youtube"
+
 
     fun execute(action: DeviceAction): ExecResult {
         if (Looper.myLooper() == Looper.getMainLooper()) return run(action)
@@ -46,10 +51,7 @@ class ActionExecutor(private val ctx: Context) {
     }
 
     private fun run(action: DeviceAction): ExecResult = when (action) {
-        is DeviceAction.Dial -> launch(
-            Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + Uri.encode(action.number))),
-            "Asked Android to open the dialer with ${action.number}. Nothing is dialled until you press call.",
-        )
+        is DeviceAction.Dial -> dial(action)
         is DeviceAction.PrepareSms -> launch(
             Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:" + Uri.encode(action.number))).putExtra("sms_body", action.body),
             "Asked Android to open a message to ${action.number}. Nothing is sent until you press send.",
@@ -58,16 +60,67 @@ class ActionExecutor(private val ctx: Context) {
             Intent(AlarmClock.ACTION_SET_ALARM)
                 .putExtra(AlarmClock.EXTRA_HOUR, action.hour)
                 .putExtra(AlarmClock.EXTRA_MINUTES, action.minute)
-                .putExtra(AlarmClock.EXTRA_MESSAGE, "RAZA AI")
+                .putExtra(AlarmClock.EXTRA_MESSAGE, action.label.ifBlank { "RAZA AI" })
                 .putExtra(AlarmClock.EXTRA_SKIP_UI, false),
             "Asked the Clock app to set an alarm for %02d:%02d. It is only saved once you confirm it there.".format(action.hour, action.minute),
         )
+        is DeviceAction.SetTimer -> launch(
+            Intent(AlarmClock.ACTION_SET_TIMER)
+                .putExtra(AlarmClock.EXTRA_LENGTH, action.seconds)
+                .putExtra(AlarmClock.EXTRA_MESSAGE, action.label.ifBlank { "RAZA AI" })
+                .putExtra(AlarmClock.EXTRA_SKIP_UI, false),
+            "Asked the Clock app to start the timer. Check the Clock app to be sure it is running.",
+        )
+        is DeviceAction.SendWhatsApp -> openWhatsApp(action)
+        is DeviceAction.YouTubeSearch -> openYouTube(action)
+        is DeviceAction.Navigate -> ExecResult(false, "Navigation needs RAZA's accessibility service, which is not available yet.")
         is DeviceAction.Volume -> adjustVolume(action.direction)
         is DeviceAction.Media -> mediaKey(action.command)
         is DeviceAction.OpenSettings -> launch(Intent(settingsAction(action.screen)), "Asked Android to open those settings.")
         is DeviceAction.OpenApp -> openApp(action.name)
         DeviceAction.GetTime, DeviceAction.GetDate, DeviceAction.GetBattery ->
             ExecResult(false, "That is a read-only request and is answered without the executor.")
+    }
+
+    private fun dial(a: DeviceAction.Dial): ExecResult {
+        val uri = Uri.parse("tel:" + Uri.encode(a.number))
+        if (a.direct) {
+            if (ctx.checkSelfPermission(Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED) {
+                return launch(Intent(Intent.ACTION_CALL, uri), "Asked Android to place the call to ${a.number}. Android does not tell me whether it was answered.")
+            }
+            val r = launch(Intent(Intent.ACTION_DIAL, uri), "")
+            return if (r.ok) ExecResult(true, "I don't have the Phone permission, so I opened the dialer with ${a.number} instead. Press call yourself.") else r
+        }
+        return launch(Intent(Intent.ACTION_DIAL, uri), "Asked Android to open the dialer with ${a.number}. Nothing is dialled until you press call.")
+    }
+
+    private fun installed(pkg: String): Boolean = try {
+        @Suppress("DEPRECATION")
+        ctx.packageManager.getPackageInfo(pkg, 0)
+        true
+    } catch (e: PackageManager.NameNotFoundException) {
+        false
+    }
+
+    private fun openWhatsApp(a: DeviceAction.SendWhatsApp): ExecResult {
+        val number = a.number ?: return ExecResult(false, "I don't have a phone number for that contact.")
+        val pkg = whatsAppPackages.firstOrNull { installed(it) } ?: return ExecResult(false, "WhatsApp is not installed on this phone.")
+        val uri = Uri.parse("https://wa.me/$number?text=" + Uri.encode(a.body))
+        return launch(
+            Intent(Intent.ACTION_VIEW, uri).setPackage(pkg),
+            "Opened your WhatsApp chat with ${a.contact ?: "+$number"} with the message ready. It has NOT been sent yet: press send.",
+        )
+    }
+
+    private fun openYouTube(a: DeviceAction.YouTubeSearch): ExecResult {
+        val uri = Uri.parse("https://www.youtube.com/results?search_query=" + Uri.encode(a.query))
+        val intent = Intent(Intent.ACTION_VIEW, uri)
+        val inApp = installed(youTubePackage)
+        if (inApp) intent.setPackage(youTubePackage)
+        return launch(
+            intent,
+            "Opened YouTube search results for \"${a.query}\"" + (if (inApp) "." else " in your browser (the YouTube app is not installed).") + " Nothing is playing yet.",
+        )
     }
 
     private fun launch(intent: Intent, okMessage: String): ExecResult = try {

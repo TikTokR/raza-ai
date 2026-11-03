@@ -94,6 +94,9 @@ sealed class Outcome {
     data class Reply(val text: String, val source: Source) : Outcome()
     data class Confirm(val pending: ConfirmationManager.Pending) : Outcome()
     data class Failure(val text: String) : Outcome()
+
+    /** A harmless action (back, home, scroll) to run right now with no YES/NO. */
+    data class Run(val action: DeviceAction) : Outcome()
 }
 
 /**
@@ -109,6 +112,9 @@ class AssistantEngine(
     private val deviceInfo: DeviceInfo,
     private val history: ConversationHistory,
     private val authAvailable: () -> Boolean,
+    private val contacts: ContactResolver = ContactResolver { ContactResult.NoPermission },
+    private val defaultCountryCode: () -> String = { "" },
+    private val directCalls: () -> Boolean = { false },
 ) {
     fun handle(message: String, language: String): Outcome {
         val text = message.trim()
@@ -145,9 +151,38 @@ class AssistantEngine(
         }
     }
 
-    private fun route(action: DeviceAction): Outcome {
-        if (!action.sensitive) return Outcome.Reply(readOnly(action), Source.LOCAL)
-        return Outcome.Confirm(confirmations.propose(action, authAvailable()))
+    private fun route(action: DeviceAction): Outcome = when {
+        action is DeviceAction.SendWhatsApp -> routeWhatsApp(action)
+        action is DeviceAction.Dial -> propose(action.copy(direct = directCalls()))
+        !action.sensitive && action.runsImmediately -> Outcome.Run(action)
+        !action.sensitive -> Outcome.Reply(readOnly(action), Source.LOCAL)
+        else -> propose(action)
+    }
+
+    private fun propose(action: DeviceAction): Outcome = Outcome.Confirm(confirmations.propose(action, authAvailable()))
+
+    /** Finds the number for a spoken name. It never guesses between different people. */
+    private fun routeWhatsApp(action: DeviceAction.SendWhatsApp): Outcome {
+        var name = action.contact
+        var raw = action.number
+        if (raw == null) {
+            val query = name ?: return Outcome.Reply("Who should I message on WhatsApp?", Source.LOCAL)
+            when (val r = contacts.resolve(query)) {
+                is ContactResult.Found -> { name = r.displayName; raw = r.number }
+                ContactResult.NotFound -> return Outcome.Reply(
+                    "I couldn't find a contact called \"$query\". Say the contact's saved name, or give the phone number.", Source.LOCAL)
+                is ContactResult.Ambiguous -> return Outcome.Reply(
+                    "I found several matches: ${r.options.joinToString("; ")}. Say the full name or give the number, and I won't guess.", Source.LOCAL)
+                ContactResult.NoPermission -> return Outcome.Reply(
+                    "I need permission to read your contacts to find \"$query\". Allow Contacts in Settings > Permissions, or give me the phone number.", Source.LOCAL)
+            }
+        }
+        val digits = WhatsAppNumber.normalize(raw, defaultCountryCode())
+            ?: return Outcome.Reply(
+                "I can't tell the country for ${name ?: raw}'s number ($raw). Set \"Default country code\" in Settings, or give the number starting with +.",
+                Source.LOCAL,
+            )
+        return propose(DeviceAction.SendWhatsApp(name, digits, action.body))
     }
 
     private fun readOnly(action: DeviceAction): String = when (action) {

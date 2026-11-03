@@ -222,6 +222,13 @@ class MainActivity : Activity(), Host {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQ_ASK) {
+            val cb = askCallback
+            askCallback = null
+            cb?.invoke(grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED)
+            refreshCurrent()
+            return
+        }
         if (requestCode != REQ_PERMS) return
         val granted = hasMic()
         micPermanentlyDenied = !granted && !shouldShowRequestPermissionRationale(Manifest.permission.RECORD_AUDIO)
@@ -238,6 +245,19 @@ class MainActivity : Activity(), Host {
             else -> toast("Microphone permission is needed for voice.")
         }
         refreshCurrent()
+    }
+
+    private var askCallback: ((Boolean) -> Unit)? = null
+
+    override fun has(permission: String) = checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
+
+    override fun ask(permission: String, onDone: (Boolean) -> Unit) {
+        if (has(permission)) {
+            onDone(true)
+            return
+        }
+        askCallback = onDone
+        requestPermissions(arrayOf(permission), REQ_ASK)
     }
 
     override fun toggleWake() {
@@ -287,6 +307,7 @@ class MainActivity : Activity(), Host {
     companion object {
         private const val REQ_PERMS = 40
         private const val REQ_AUTH = 41
+        private const val REQ_ASK = 42
         private const val KEY_TAB = "tab"
     }
 }

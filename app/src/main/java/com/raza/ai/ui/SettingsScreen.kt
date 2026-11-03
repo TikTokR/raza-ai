@@ -1,6 +1,7 @@
 package com.raza.ai.ui
 
 import android.app.AlertDialog
+import android.Manifest
 import android.os.Build
 import android.text.InputType
 import android.view.View
@@ -28,6 +29,7 @@ class SettingsScreen(ui: Ui, session: AssistantSession, host: Host) : Screen(ui,
     private val urlField = field("https://your-backend.example.com", false)
     private val tokenField = field("Paste access token", true)
     private val phraseField = field("hey raza  (or: ہیلو رضا)", false)
+    private val ccField = field("e.g. 92 (blank = SIM country)", false)
 
     private fun field(hintText: String, secret: Boolean) = EditText(ui.ctx).apply {
         hint = hintText
@@ -47,12 +49,13 @@ class SettingsScreen(ui: Ui, session: AssistantSession, host: Host) : Screen(ui,
     }
 
     override fun refresh() {
-        listOf(urlField, tokenField, phraseField).forEach { (it.parent as? ViewGroup)?.removeView(it) }
+        listOf(urlField, tokenField, phraseField, ccField).forEach { (it.parent as? ViewGroup)?.removeView(it) }
         if (!filled) {
             urlField.setText(host.settings.apiBaseUrl)
             tokenField.setText("")
             tokenField.hint = if (host.tokens.get().isNotEmpty()) "Saved (encrypted). Leave empty to keep it." else "Paste access token"
             phraseField.setText(host.settings.wakePhrase)
+            ccField.setText(host.settings.defaultCountryCode)
             filled = true
         }
         content.removeAllViews()
@@ -211,6 +214,27 @@ class SettingsScreen(ui: Ui, session: AssistantSession, host: Host) : Screen(ui,
         c.addView(ui.row("Battery optimization", if (b) "unrestricted" else "optimized", if (b) Theme.green else Theme.muted))
         c.addView(ui.note("Optional. Setting this to unrestricted can help the wake listener survive on phones with aggressive battery managers. It is never required."))
         c.addView(ui.button("Open battery settings") { host.openBatterySettings() })
+        val contacts = host.has(Manifest.permission.READ_CONTACTS)
+        c.addView(ui.row("Contacts", if (contacts) "granted" else "not granted", if (contacts) Theme.green else Theme.muted))
+        c.addView(ui.note("Optional. Lets \"WhatsApp Ali ...\" find Ali's number. Contacts are searched only when you ask and are not stored or uploaded."))
+        if (!contacts) c.addView(ui.button("Grant contacts") { host.ask(Manifest.permission.READ_CONTACTS) { refresh() } })
+        val phone = host.has(Manifest.permission.CALL_PHONE)
+        c.addView(ui.row("Phone (direct calls)", if (phone) "granted" else "not granted", if (phone) Theme.green else Theme.muted))
+        c.addView(switchRow("Place calls directly (after confirmation and screen lock)", host.settings.directCalls) { on ->
+            host.settings.directCalls = on
+            if (on && !phone) host.ask(Manifest.permission.CALL_PHONE) { granted ->
+                if (!granted) host.toast("Without the Phone permission RAZA will still only open the dialer.")
+                refresh()
+            }
+        })
+        c.addView(ui.note("Off (default): RAZA opens the dialer and you press call. On: RAZA calls only after you say yes and pass the screen-lock check."))
+        c.addView(ui.text("Default country code for saved numbers", 12f, Theme.muted).apply { setPadding(0, ui.dp(8), 0, ui.dp(2)) })
+        c.addView(ccField)
+        c.addView(ui.button("Save country code") {
+            host.settings.defaultCountryCode = ccField.text.toString()
+            host.toast("Saved.")
+        })
+        c.addView(ui.note("WhatsApp needs the full international number. Numbers saved like 0300... get this code added. Digits only, e.g. 92."))
         c.addView(ui.row("Accessibility service", "not used", Theme.text))
         c.addView(ui.note("RAZA does not use Accessibility, hidden APIs, or any way around Android's security. Calls and texts only open the dialer or message screen; you press call or send."))
         return c

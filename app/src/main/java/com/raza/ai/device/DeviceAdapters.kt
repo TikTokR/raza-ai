@@ -6,6 +6,14 @@ import android.content.IntentFilter
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.BatteryManager
+import android.Manifest
+import android.content.pm.PackageManager
+import android.provider.ContactsContract
+import android.telephony.TelephonyManager
+import com.raza.ai.core.ContactMatcher
+import com.raza.ai.core.ContactResolver
+import com.raza.ai.core.ContactResult
+import com.raza.ai.core.CountryCodes
 import com.raza.ai.core.Connectivity
 import com.raza.ai.core.DeviceInfo
 import java.time.LocalDate
@@ -38,5 +46,41 @@ class AndroidDeviceInfo(private val ctx: Context) : DeviceInfo {
         val status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
         val charging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
         return if (charging) "$pct percent and charging" else "$pct percent"
+    }
+}
+
+/** Looks names up in the phone's own contacts. Needs the READ_CONTACTS permission; reads nothing until asked. */
+class AndroidContactResolver(private val ctx: Context) : ContactResolver {
+    override fun resolve(name: String): ContactResult {
+        if (ctx.checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) return ContactResult.NoPermission
+        val rows = ArrayList<Pair<String, String>>()
+        val like = "%" + name.trim().replace("%", "").replace("_", "") + "%"
+        try {
+            ctx.contentResolver.query(
+                ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                arrayOf(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME, ContactsContract.CommonDataKinds.Phone.NUMBER),
+                ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " LIKE ?",
+                arrayOf(like),
+                null,
+            )?.use { c ->
+                while (c.moveToNext() && rows.size < 200) {
+                    val n = c.getString(0) ?: continue
+                    val num = c.getString(1) ?: continue
+                    rows.add(n to num)
+                }
+            }
+        } catch (e: SecurityException) {
+            return ContactResult.NoPermission
+        }
+        // The SQL LIKE only narrows the search; ContactMatcher decides who is meant.
+        return if (rows.isEmpty()) ContactResult.NotFound else ContactMatcher.pick(name, rows)
+    }
+}
+
+/** Calling code of the SIM country, used only as the default for numbers saved without a country code. */
+class AndroidRegion(private val ctx: Context) {
+    fun callingCode(): String {
+        val tm = ctx.getSystemService(TelephonyManager::class.java)
+        return CountryCodes.fromIso(tm?.simCountryIso?.takeIf { it.isNotBlank() } ?: tm?.networkCountryIso)
     }
 }
