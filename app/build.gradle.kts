@@ -11,13 +11,25 @@ android {
         applicationId = "com.raza.ai"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = 3
+        versionName = "1.2.0"
 
         // Optional build-time default backend URL: -PrazaApiBaseUrl=https://your-host
         // Empty by default: the app then shows "cloud AI not set up" instead of guessing.
         val defaultApi = (project.findProperty("razaApiBaseUrl") as String?) ?: ""
         buildConfigField("String", "DEFAULT_API_BASE_URL", "\"$defaultApi\"")
+    }
+
+    // One fixed signing key for every build. Without it each CI run generates a new random debug key, and Android
+    // refuses to install a build over an older one signed with a different key ("App not installed").
+    // This key is committed on purpose for sideloaded personal builds. It is NOT a Play Store release key.
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("raza-debug.keystore")
+            storePassword = "razadebug"
+            keyAlias = "razadebug"
+            keyPassword = "razadebug"
+        }
     }
 
     buildFeatures {

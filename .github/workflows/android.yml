@@ -149,6 +149,12 @@ jobs:
           echo "APK: $APK ($SIZE bytes)"
           test "$SIZE" -gt 100000
 
+      - name: Print the APK signing certificate (must be identical on every run)
+        run: |
+          APKSIGNER="$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)"
+          "$APKSIGNER" verify --verbose --print-certs app/build/outputs/apk/debug/app-debug.apk | grep -E "Verifies|Signer #1 certificate (DN|SHA-256)|Number of signers"
+          "$ANDROID_HOME"/build-tools/*/aapt2 dump badging app/build/outputs/apk/debug/app-debug.apk 2>/dev/null | grep -E "^package:" || true
+
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
