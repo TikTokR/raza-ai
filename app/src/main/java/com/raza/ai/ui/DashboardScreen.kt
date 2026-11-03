@@ -26,6 +26,10 @@ class DashboardScreen(ui: Ui, session: AssistantSession, host: Host) : Screen(ui
         Quick("Volume +", "volume up"),
         Quick("Volume -", "volume down"),
         Quick("My tasks", "show my tasks"),
+        Quick("Back", "go back"),
+        Quick("Home", "go home"),
+        Quick("Next video", "next video"),
+        Quick("Scroll down", "scroll down"),
     )
 
     override fun refresh() {

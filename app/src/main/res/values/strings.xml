@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="a11y_description">RAZA AI uses this only after you ask it by voice or text. It can press Back, Home or Recents, scroll or swipe, press WhatsApp\'s Send button for a message you confirmed, and tap the first YouTube result. It can see only WhatsApp, YouTube and TikTok screens. Nothing it sees is saved or sent anywhere.</string>
+</resources>

@@ -13,6 +13,7 @@ import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.Switch
 import com.raza.ai.AssistantSession
+import com.raza.ai.RazaAccessibilityService
 import com.raza.ai.WakeWordService
 import com.raza.ai.core.ConnectionState
 import com.raza.ai.core.Languages
@@ -235,8 +236,12 @@ class SettingsScreen(ui: Ui, session: AssistantSession, host: Host) : Screen(ui,
             host.toast("Saved.")
         })
         c.addView(ui.note("WhatsApp needs the full international number. Numbers saved like 0300... get this code added. Digits only, e.g. 92."))
-        c.addView(ui.row("Accessibility service", "not used", Theme.text))
-        c.addView(ui.note("RAZA does not use Accessibility, hidden APIs, or any way around Android's security. Calls and texts only open the dialer or message screen; you press call or send."))
+        val a11y = RazaAccessibilityService.isConnected()
+        c.addView(ui.row("Accessibility service", if (a11y) "ON" else "off", if (a11y) Theme.green else Theme.muted))
+        c.addView(ui.note("Optional. Lets RAZA press Back/Home/Recents, scroll and swipe (for example next TikTok video), press WhatsApp's Send for a message you confirmed, and tap the first YouTube result. It can only see WhatsApp, YouTube and TikTok screens, and saves or uploads nothing it sees."))
+        c.addView(ui.button("Open accessibility settings", accent = !a11y) { host.openAccessibilitySettings() })
+        c.addView(ui.note("To switch on: Accessibility > Downloaded apps (or Installed apps) > RAZA AI > On. If the switch is greyed out (Android 13+ for apps installed from a file): Settings > Apps > RAZA AI > the three dots at the top right > Allow restricted settings, then try again."))
+        c.addView(ui.note("RAZA uses no hidden APIs and cannot unlock the phone. Calls and texts open the dialer or composer unless you switch on direct calls above."))
         return c
     }
 
@@ -339,7 +344,9 @@ class SettingsScreen(ui: Ui, session: AssistantSession, host: Host) : Screen(ui,
 
             Sent over the network: only text you type or say (after speech-to-text), recent chat turns and your saved notes, to the backend address you set. Your backend then calls its AI provider. Nothing is sent when cloud AI is off, no backend is set, or you are offline. Audio is not uploaded by this app; Android's speech service may process it.
 
-            Safety: every device-changing command asks yes/no first. Calls and texts only open the dialer or message screen. They also need your phone's screen lock when one is set. RAZA never sees or stores your PIN, pattern or password and cannot unlock the phone.
+            Contacts: read only when you ask to message someone by name; not stored or uploaded. Accessibility (optional, off until you enable it): limited to WhatsApp, YouTube and TikTok screens; used to press Send for a message you confirmed, tap the first YouTube result, and press Back/Home/scroll/swipe; nothing it sees is saved or sent.
+
+            Safety: every command that changes something or contacts someone asks yes/no first (Back, Home and scrolling run at once). Calls, texts and WhatsApp messages also need your phone's screen lock when one is set. Calls open the dialer unless you switch on direct calls. RAZA never sees or stores your PIN, pattern or password and cannot unlock the phone.
 
             Owner voice check: not available (see Owner security).
         """.trimIndent()

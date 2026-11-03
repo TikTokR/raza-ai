@@ -57,6 +57,20 @@
             </intent-filter>
         </activity>
 
+        <!-- Optional. Off until you enable it in Android Settings > Accessibility. Limited to WhatsApp, YouTube and TikTok windows. -->
+        <service
+            android:name=".RazaAccessibilityService"
+            android:exported="true"
+            android:label="RAZA AI"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/raza_accessibility" />
+        </service>
+
         <service
             android:name=".WakeWordService"
             android:exported="false"

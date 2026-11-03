@@ -109,6 +109,7 @@ interface Host {
     fun openAppSettings()
     fun openBatterySettings()
     fun openSecuritySettings()
+    fun openAccessibilitySettings()
     fun batteryUnrestricted(): Boolean
     fun screenLockSet(): Boolean
     fun toast(message: String)

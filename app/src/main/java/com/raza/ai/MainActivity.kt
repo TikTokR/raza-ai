@@ -196,6 +196,14 @@ class MainActivity : Activity(), Host {
         }
     }
 
+    override fun openAccessibilitySettings() {
+        try {
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        } catch (e: Exception) {
+            toast("Open Android Settings > Accessibility.")
+        }
+    }
+
     override fun openSecuritySettings() {
         try {
             startActivity(Intent(Settings.ACTION_SECURITY_SETTINGS))

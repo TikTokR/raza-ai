@@ -12,7 +12,11 @@ import android.os.Looper
 import android.provider.AlarmClock
 import android.provider.Settings
 import android.view.KeyEvent
+import com.raza.ai.RazaAccessibilityService
 import com.raza.ai.core.AppMatcher
+import com.raza.ai.core.SwipePlan
+import com.raza.ai.core.UiMatchers
+import com.raza.ai.core.NavKind
 import com.raza.ai.core.DeviceAction
 import com.raza.ai.core.MediaCommand
 import com.raza.ai.core.SettingsScreen
@@ -33,13 +37,24 @@ class ActionExecutor(private val ctx: Context) {
     private val youTubePackage = "com.google.android.youtube"
 
 
-    fun execute(action: DeviceAction): ExecResult {
-        if (Looper.myLooper() == Looper.getMainLooper()) return run(action)
+    private val whatsAppSet = whatsAppPackages.toSet()
+    private val youTubeSet = setOf(youTubePackage)
+
+    /** Never call from the main thread: automation waits for other apps' screens. */
+    fun execute(action: DeviceAction): ExecResult = when (action) {
+        is DeviceAction.Navigate -> navigate(action)
+        is DeviceAction.SendWhatsApp -> sendWhatsApp(action)
+        is DeviceAction.YouTubeSearch -> youTube(action)
+        else -> onMain { run(action) }
+    }
+
+    private fun onMain(block: () -> ExecResult): ExecResult {
+        if (Looper.myLooper() == Looper.getMainLooper()) return block()
         var result = ExecResult(false, "Android did not respond in time.")
         val latch = CountDownLatch(1)
         Handler(Looper.getMainLooper()).post {
             try {
-                result = run(action)
+                result = block()
             } catch (e: Exception) {
                 result = ExecResult(false, "Android could not do that (${e.javaClass.simpleName}).")
             } finally {
@@ -48,6 +63,64 @@ class ActionExecutor(private val ctx: Context) {
         }
         latch.await(8, TimeUnit.SECONDS)
         return result
+    }
+
+    private val needsService = "RAZA's accessibility service is off. Turn it on in Settings > Permissions > Accessibility, then ask again."
+
+    private fun navigate(a: DeviceAction.Navigate): ExecResult {
+        if (Looper.myLooper() == Looper.getMainLooper()) return ExecResult(false, "Internal error: navigation must not run on the main thread.")
+        val svc = RazaAccessibilityService.instance ?: return ExecResult(false, needsService)
+        val (w, h) = svc.screenSize()
+        val swipe = SwipePlan.forKind(a.kind, w, h)
+        return if (swipe == null) {
+            if (svc.global(a.kind)) ExecResult(true, "Pressed ${a.kind.name.lowercase()}. Android does not tell me what the screen did next.")
+            else ExecResult(false, "Android refused the ${a.kind.name.lowercase()} action.")
+        } else {
+            if (svc.swipe(swipe)) ExecResult(true, "Swiped. Android confirmed the gesture ran, but I can't see whether the app reacted.")
+            else ExecResult(false, "Android did not perform the swipe.")
+        }
+    }
+
+    private fun sendWhatsApp(a: DeviceAction.SendWhatsApp): ExecResult {
+        if (Looper.myLooper() == Looper.getMainLooper()) return ExecResult(false, "Internal error: automation must not run on the main thread.")
+        val opened = onMain { openWhatsApp(a) }
+        if (!opened.ok) return opened
+        val who = a.contact ?: "+${a.number}"
+        val svc = RazaAccessibilityService.instance
+            ?: return ExecResult(true, opened.message + " (My accessibility service is off, so I did not press send.)")
+
+        // Safety: only press Send once the box holds exactly the confirmed text, so a stale draft in another chat is never sent.
+        val input = svc.waitForNode(10_000, whatsAppSet) {
+            UiMatchers.isWhatsAppInput(it.viewIdResourceName) && UiMatchers.inputHoldsMessage(it.text, a.body)
+        } ?: return ExecResult(false, "I opened WhatsApp but couldn't confirm your message was in the chat box, so I pressed nothing. It has NOT been sent.")
+        val send = svc.waitForNode(5_000, whatsAppSet) { UiMatchers.isWhatsAppSend(it.viewIdResourceName, it.contentDescription) }
+            ?: return ExecResult(false, "The message is ready in the chat with $who, but I couldn't find WhatsApp's Send button. It has NOT been sent. Press send yourself.")
+        if (!svc.click(send)) return ExecResult(false, "I found Send but Android would not press it. The message has NOT been sent. Press send yourself.")
+
+        Thread.sleep(900)
+        val stillThere = svc.waitForNode(600, whatsAppSet) {
+            UiMatchers.isWhatsAppInput(it.viewIdResourceName) && UiMatchers.inputHoldsMessage(it.text, a.body)
+        }
+        return if (stillThere == null && input != null) {
+            ExecResult(true, "Pressed Send in WhatsApp and the message box emptied, so the message to $who was most likely sent. WhatsApp gives me no delivery receipt, so check the chat.")
+        } else {
+            ExecResult(false, "I pressed Send, but the text is still in the box, so I can't say it was sent to $who. Please check WhatsApp.")
+        }
+    }
+
+    private fun youTube(a: DeviceAction.YouTubeSearch): ExecResult {
+        if (Looper.myLooper() == Looper.getMainLooper()) return ExecResult(false, "Internal error: automation must not run on the main thread.")
+        val opened = onMain { openYouTube(a) }
+        if (!opened.ok || !a.autoPlay) return opened
+        val svc = RazaAccessibilityService.instance
+            ?: return ExecResult(true, opened.message + " (My accessibility service is off, so I did not start a video.)")
+        val result = svc.waitForNode(12_000, youTubeSet) { UiMatchers.isYouTubeVideoResult(it.contentDescription) }
+            ?: return ExecResult(false, "I opened YouTube search for \"${a.query}\" but couldn't find a video to tap (YouTube's screen may have changed). Tap one yourself.")
+        return if (svc.click(result)) {
+            ExecResult(true, "Tapped the first video result for \"${a.query}\". YouTube doesn't tell me playback started, so check your screen.")
+        } else {
+            ExecResult(false, "I found a result but Android would not tap it. Tap a video yourself.")
+        }
     }
 
     private fun run(action: DeviceAction): ExecResult = when (action) {
@@ -71,9 +144,8 @@ class ActionExecutor(private val ctx: Context) {
                 .putExtra(AlarmClock.EXTRA_SKIP_UI, false),
             "Asked the Clock app to start the timer. Check the Clock app to be sure it is running.",
         )
-        is DeviceAction.SendWhatsApp -> openWhatsApp(action)
-        is DeviceAction.YouTubeSearch -> openYouTube(action)
-        is DeviceAction.Navigate -> ExecResult(false, "Navigation needs RAZA's accessibility service, which is not available yet.")
+        is DeviceAction.Navigate, is DeviceAction.SendWhatsApp, is DeviceAction.YouTubeSearch ->
+            ExecResult(false, "Internal error: this action is handled by the automation path.")
         is DeviceAction.Volume -> adjustVolume(action.direction)
         is DeviceAction.Media -> mediaKey(action.command)
         is DeviceAction.OpenSettings -> launch(Intent(settingsAction(action.screen)), "Asked Android to open those settings.")
