@@ -13,6 +13,7 @@ android {
         targetSdk = 35
         versionCode = 3
         versionName = "1.2.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // Optional build-time default backend URL: -PrazaApiBaseUrl=https://your-host
         // Empty by default: the app then shows "cloud AI not set up" instead of guessing.
@@ -51,6 +52,11 @@ android {
 dependencies {
     // Encrypted storage for the backend access token.
     implementation("androidx.security:security-crypto:1.0.0")
+
+    androidTestImplementation("androidx.test:core:1.6.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test:rules:1.6.1")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
 
     testImplementation("junit:junit:4.13.2")
     // Real org.json for JVM unit tests (the android.jar copy is only a stub).

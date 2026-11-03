@@ -104,6 +104,11 @@ interface Host {
     fun has(permission: String): Boolean
     fun ask(permission: String, onDone: (Boolean) -> Unit)
     fun toggleWake()
+    fun startWake()
+    fun stopWake()
+    fun restartWake()
+    fun requestIgnoreBattery()
+    fun lastStopReason(): String?
     fun toggleWakePause()
     fun openTab(index: Int)
     fun openAppSettings()
@@ -113,6 +118,24 @@ interface Host {
     fun batteryUnrestricted(): Boolean
     fun screenLockSet(): Boolean
     fun toast(message: String)
+}
+
+/** The one truthful answer to "is RAZA listening right now?", built from the real service state. */
+fun Host.listenStatus(): com.raza.ai.core.ListenStatus = com.raza.ai.core.ListeningStatusResolver.resolve(
+    micGranted = hasMic(),
+    notificationsGranted = notificationsGranted(),
+    wantsOn = settings.wakeEnabled,
+    state = com.raza.ai.voice.WakeHub.state,
+    error = com.raza.ai.voice.WakeHub.error,
+    phrase = settings.wakePhrase,
+    stopReason = if (com.raza.ai.voice.WakeHub.state == com.raza.ai.core.WakeState.OFF && settings.wakeEnabled) lastStopReason() else null,
+)
+
+fun Theme.severityColor(s: com.raza.ai.core.Severity): Int = when (s) {
+    com.raza.ai.core.Severity.OK -> green
+    com.raza.ai.core.Severity.WARN -> amber
+    com.raza.ai.core.Severity.BAD -> red
+    com.raza.ai.core.Severity.OFF -> muted
 }
 
 abstract class Screen(protected val ui: Ui, protected val session: AssistantSession, protected val host: Host) {

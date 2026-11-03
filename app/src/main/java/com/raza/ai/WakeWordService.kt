@@ -30,14 +30,18 @@ import com.raza.ai.data.SettingsStore
 import com.raza.ai.voice.WakeHub
 
 /**
- * Foreground microphone service that listens for the user's wake phrase.
+ * Foreground microphone service that listens for the user's wake phrase while the app is closed or in the background.
  *
- * Honest limits (also shown in the app):
- *  - It is built on Android's SpeechRecognizer, NOT a low-power hardware hotword engine, so it
- *    uses more battery and can miss the phrase in noise. Some phones beep when it restarts.
- *  - It can only be started while the app is visible (Android 12+/14+ rules) and is never
- *    restarted after reboot. Phone makers' battery managers may still stop it.
- *  - The recogniser is asked to work on-device when possible, but Android does not guarantee that.
+ * What it does and does not promise (also shown in the app):
+ *  - It keeps running after you press Home or remove RAZA from Recent Apps (stopWithTask=false).
+ *  - Audio is processed by Android's speech recogniser and only inspected for the wake phrase; RAZA records, saves
+ *    and uploads nothing. On Android 13+ it uses the on-device recogniser when the phone has one, so audio stays on the phone.
+ *    Otherwise Android's speech service is used and may use the network. The status line says which one is active.
+ *  - It is NOT a low-power hotword chip, so it costs battery.
+ *  - Android may still end it (force-stop, battery managers, low memory). It is started by the user while the app is
+ *    visible, as Android 12+/14+ require. If Android kills it, the system may restart it, but since Android 14 a
+ *    restarted service cannot reopen the microphone from the background; then RAZA posts a "not listening, tap to
+ *    turn on" notice instead of pretending. It is never started silently after a reboot.
  *  - The microphone indicator and the notification are always shown; this service never hides them.
  */
 class WakeWordService : Service(), WakeHub.Control {
@@ -48,6 +52,8 @@ class WakeWordService : Service(), WakeHub.Control {
     private var recognizer: SpeechRecognizer? = null
     private lateinit var settings: SettingsStore
     private var pausedByUser = false
+    private var usingOnDevice = false
+    private var onDeviceBroken = false
 
     private val listenRunnable = Runnable { listen() }
     private val commandTimeout = Runnable {
@@ -62,18 +68,41 @@ class WakeWordService : Service(), WakeHub.Control {
     override fun onCreate() {
         super.onCreate()
         settings = SettingsStore(this)
-        createChannels()
+        WakeNotifications.ensureChannels(this)
         WakeHub.control = this
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_STOP -> shutdown()
+            ACTION_STOP -> shutdown(byUser = true)
             ACTION_USER_PAUSE -> userPause()
             ACTION_USER_RESUME -> userResume()
+            ACTION_RESTART -> restart()
+            null -> recoverAfterKill() // Android restarted us after it ended our process
             else -> startWake()
         }
-        return START_NOT_STICKY
+        // STICKY: if Android ends the process, ask it to bring the service back. An explicit stop is never restarted.
+        return START_STICKY
+    }
+
+    /** Called when the system recreates the service with no intent. */
+    private fun recoverAfterKill() {
+        if (!settings.wakeEnabled) {
+            stopSelf()
+            return
+        }
+        // startWake() posts the honest "tap to turn on" notice if Android will not let a background service use the mic.
+        startWake()
+    }
+
+    private fun restart() {
+        main.removeCallbacksAndMessages(null)
+        destroyRecognizer()
+        machine.stop()
+        pausedByUser = false
+        onDeviceBroken = false
+        settings.wakeEnabled = true
+        startWake()
     }
 
     // ---- lifecycle ----
@@ -85,15 +114,19 @@ class WakeWordService : Service(), WakeHub.Control {
         val granted = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         if (!machine.start(granted)) { // no permission: machine records the error
             publish()
+            WakeNotifications.resumePrompt(this, (machine.error ?: "Microphone permission is missing.") + " Open RAZA AI to fix it.")
             stopSelf()
             return
         }
         if (!inForeground) {
-            machine.onError("Android would not let the wake listener run in the background. Open the app and try again.")
+            val msg = "Android would not let the wake listener use the microphone from the background."
+            machine.onError(msg)
             publish()
+            WakeNotifications.resumePrompt(this, "$msg Tap to turn listening back on.")
             stopSelf()
             return
         }
+        WakeNotifications.clearResumePrompt(this)
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
             machine.onError("Speech recognition is not available on this phone.")
             publish()
@@ -119,19 +152,30 @@ class WakeWordService : Service(), WakeHub.Control {
         false
     }
 
-    private fun shutdown() {
+    private fun shutdown(byUser: Boolean) {
         main.removeCallbacksAndMessages(null)
         destroyRecognizer()
         machine.stop()
+        if (byUser) {
+            settings.wakeEnabled = false // an explicit Stop must never be undone by a sticky restart
+            WakeNotifications.clearResumePrompt(this)
+        }
+        WakeHub.engine = ""
         WakeHub.publish(WakeState.OFF, null)
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
+    }
+
+    /** The app was swiped away from Recent Apps. The service keeps running on purpose; nothing to do. */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
     }
 
     override fun onDestroy() {
         main.removeCallbacksAndMessages(null)
         destroyRecognizer()
         if (WakeHub.control === this) WakeHub.control = null
+        WakeHub.engine = ""
         if (machine.state != WakeState.ERROR) WakeHub.publish(WakeState.OFF, null)
         super.onDestroy()
     }
@@ -189,7 +233,10 @@ class WakeWordService : Service(), WakeHub.Control {
         val phrase = settings.wakePhrase
         val tag = if (Script.isUrdu(phrase)) Languages.speechTag(Languages.URDU) else Languages.speechTag(Languages.ENGLISH)
         try {
-            val r = SpeechRecognizer.createSpeechRecognizer(this)
+            usingOnDevice = Build.VERSION.SDK_INT >= 33 && settings.preferOfflineSpeech && !onDeviceBroken &&
+                SpeechRecognizer.isOnDeviceRecognitionAvailable(this)
+            val r = if (usingOnDevice) SpeechRecognizer.createOnDeviceSpeechRecognizer(this) else SpeechRecognizer.createSpeechRecognizer(this)
+            WakeHub.engine = if (usingOnDevice) "on-device recogniser (audio stays on the phone)" else "Android speech service (may use the network)"
             recognizer = r
             r.setRecognitionListener(object : RecognitionListener {
                 override fun onPartialResults(partialResults: Bundle?) = checkForWake(partialResults, phrase, isFinal = false)
@@ -248,6 +295,12 @@ class WakeWordService : Service(), WakeHub.Control {
     }
 
     private fun handleError(code: Int) {
+        if (usingOnDevice && (code == 12 || code == 13)) {
+            // The on-device model does not cover this language: fall back to Android's speech service and say so.
+            onDeviceBroken = true
+            scheduleListen(200)
+            return
+        }
         when (RecognizerErrors.classify(code)) {
             RecognizerErrors.Action.RETRY_QUICK -> {
                 backoff.reset()
@@ -269,7 +322,9 @@ class WakeWordService : Service(), WakeHub.Control {
         main.removeCallbacksAndMessages(null)
         destroyRecognizer()
         machine.onError(message)
+        WakeHub.engine = ""
         publish()
+        WakeNotifications.resumePrompt(this, "$message Tap to open RAZA AI.")
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -299,20 +354,6 @@ class WakeWordService : Service(), WakeHub.Control {
         }
     }
 
-    private fun createChannels() {
-        val nm = getSystemService(NotificationManager::class.java)
-        nm.createNotificationChannel(
-            NotificationChannel(CHANNEL_LISTENING, "Wake listening", NotificationManager.IMPORTANCE_LOW).apply {
-                description = "Shown the whole time RAZA AI is using the microphone to listen for your wake phrase."
-            },
-        )
-        nm.createNotificationChannel(
-            NotificationChannel(CHANNEL_ALERT, "Wake phrase heard", NotificationManager.IMPORTANCE_HIGH).apply {
-                description = "Tap to talk to RAZA AI after it hears your wake phrase."
-            },
-        )
-    }
-
     private fun openAppIntent(fromWake: Boolean): PendingIntent {
         val i = Intent(this, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
@@ -337,7 +378,7 @@ class WakeWordService : Service(), WakeHub.Control {
         } else {
             Notification.Action.Builder(Icon.createWithResource(this, android.R.drawable.ic_media_pause), "Pause", serviceAction(ACTION_USER_PAUSE, 3)).build()
         }
-        return Notification.Builder(this, CHANNEL_LISTENING)
+        return Notification.Builder(this, WakeNotifications.CHANNEL_LISTENING)
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setContentTitle("RAZA AI")
             .setContentText(text)
@@ -351,7 +392,7 @@ class WakeWordService : Service(), WakeHub.Control {
 
     private fun postWakeAlert() {
         try {
-            val n = Notification.Builder(this, CHANNEL_ALERT)
+            val n = Notification.Builder(this, WakeNotifications.CHANNEL_ALERT)
                 .setSmallIcon(android.R.drawable.ic_btn_speak_now)
                 .setContentTitle("RAZA AI heard you")
                 .setContentText("Tap to talk. Android does not let a background service open the app by itself.")
@@ -368,9 +409,8 @@ class WakeWordService : Service(), WakeHub.Control {
         const val ACTION_STOP = "com.raza.ai.action.WAKE_STOP"
         const val ACTION_USER_PAUSE = "com.raza.ai.action.WAKE_USER_PAUSE"
         const val ACTION_USER_RESUME = "com.raza.ai.action.WAKE_USER_RESUME"
+        const val ACTION_RESTART = "com.raza.ai.action.WAKE_RESTART"
         const val EXTRA_FROM_WAKE = "from_wake"
-        private const val CHANNEL_LISTENING = "raza_ai_mic"
-        private const val CHANNEL_ALERT = "raza_ai_wake_alert"
         private const val NOTIFICATION_ID = 501
         private const val ALERT_ID = 502
         private const val MAX_HARD_FAILURES = 8
@@ -378,6 +418,11 @@ class WakeWordService : Service(), WakeHub.Control {
 
         fun start(ctx: Context) {
             ctx.startForegroundService(Intent(ctx, WakeWordService::class.java).setAction(ACTION_START))
+        }
+
+        /** Stop, then listen again from scratch. Must be called while the app is visible (Android 12+/14+ rule). */
+        fun restart(ctx: Context) {
+            ctx.startForegroundService(Intent(ctx, WakeWordService::class.java).setAction(ACTION_RESTART))
         }
 
         fun stop(ctx: Context) {

@@ -14,6 +14,10 @@
     <!-- Lets the Clock app open with an alarm filled in (you still confirm it there). -->
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
 
+    <!-- After a restart or update, post an honest "listening is off, tap to turn on" notice (it cannot start the microphone by itself). -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Optional: lets you ask Android to exempt RAZA from battery optimisation so the listener is ended less often. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- Optional: place a call directly instead of opening the dialer (only if you switch that on in Settings). -->
     <uses-permission android:name="android.permission.CALL_PHONE" />
     <!-- Optional: find a contact's number when you say "WhatsApp Ali ...". Read only when you ask. -->
@@ -74,6 +78,16 @@
         <service
             android:name=".WakeWordService"
             android:exported="false"
-            android:foregroundServiceType="microphone" />
+            android:foregroundServiceType="microphone"
+            android:stopWithTask="false" />
+
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

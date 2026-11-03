@@ -22,6 +22,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import com.raza.ai.core.WakeState
+import com.raza.ai.device.ListenDiagnostics
 import com.raza.ai.data.SecureTokenStore
 import com.raza.ai.data.SettingsStore
 import com.raza.ai.ui.AssistantScreen
@@ -89,6 +90,10 @@ class MainActivity : Activity(), Host {
     }
 
     private fun handleIntent(i: Intent?) {
+        if (i?.getBooleanExtra(WakeNotifications.EXTRA_RESUME_WAKE, false) == true) {
+            i.removeExtra(WakeNotifications.EXTRA_RESUME_WAKE)
+            startWake() // the app is on screen now, so Android allows the microphone service to start
+        }
         if (i?.getBooleanExtra(WakeWordService.EXTRA_FROM_WAKE, false) == true) {
             i.removeExtra(WakeWordService.EXTRA_FROM_WAKE)
             showTab(0)
@@ -269,21 +274,49 @@ class MainActivity : Activity(), Host {
     }
 
     override fun toggleWake() {
-        val s = WakeHub.state
-        if (s == WakeState.OFF || s == WakeState.ERROR) {
-            withMic {
-                try {
-                    settings.wakeEnabled = true
-                    WakeWordService.start(this)
-                } catch (e: Exception) {
-                    toast("Android blocked the background microphone: ${e.javaClass.simpleName}")
-                }
+        val st = WakeHub.state
+        if (st == WakeState.OFF || st == WakeState.ERROR) startWake() else stopWake()
+    }
+
+    override fun startWake() {
+        withMic {
+            try {
+                settings.wakeEnabled = true
+                WakeNotifications.clearResumePrompt(this)
+                WakeWordService.start(this)
+            } catch (e: Exception) {
+                toast("Android blocked the background microphone: ${e.javaClass.simpleName}")
             }
-        } else {
-            settings.wakeEnabled = false
-            WakeWordService.stop(this)
         }
     }
+
+    override fun stopWake() {
+        settings.wakeEnabled = false
+        WakeNotifications.clearResumePrompt(this)
+        WakeWordService.stop(this)
+    }
+
+    override fun restartWake() {
+        withMic {
+            try {
+                settings.wakeEnabled = true
+                WakeNotifications.clearResumePrompt(this)
+                WakeWordService.restart(this)
+            } catch (e: Exception) {
+                toast("Android blocked the background microphone: ${e.javaClass.simpleName}")
+            }
+        }
+    }
+
+    override fun requestIgnoreBattery() {
+        try {
+            startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
+        } catch (e: Exception) {
+            openBatterySettings()
+        }
+    }
+
+    override fun lastStopReason(): String? = ListenDiagnostics(this).lastStopReason()
 
     override fun toggleWakePause() {
         when (WakeHub.state) {

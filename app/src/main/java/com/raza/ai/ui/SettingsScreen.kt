@@ -81,40 +81,48 @@ class SettingsScreen(ui: Ui, session: AssistantSession, host: Host) : Screen(ui,
 
     // ---------- wake word ----------
     private fun wakeCard(): View {
-        val c = ui.card("WAKE WORD & VOICE ACTIVATION")
-        val running = WakeHub.state != WakeState.OFF && WakeHub.state != WakeState.ERROR
-        c.addView(switchRow("Voice activation (keeps the microphone on)", running) { want ->
-            if (want != running) host.toggleWake()
-        })
-        c.addView(
-            ui.row(
-                "Status",
-                when (WakeHub.state) {
-                    WakeState.OFF -> "off"
-                    WakeState.STARTING -> "starting"
-                    WakeState.LISTENING -> "listening"
-                    WakeState.COMMAND_LISTENING -> "heard you"
-                    WakeState.PAUSED -> "paused"
-                    WakeState.ERROR -> "error: ${WakeHub.error ?: "unknown"}"
-                },
-                if (WakeHub.state == WakeState.ERROR) Theme.red else Theme.text,
-            ),
-        )
+        val c = ui.card("BACKGROUND LISTENING (WAKE PHRASE)")
+        val ls = host.listenStatus()
+        c.addView(ui.text(ls.label, 15f, Theme.severityColor(ls.severity), true))
+        c.addView(ui.note(ls.detail))
+        c.addView(ui.row("Microphone", if (ls.micIsOn) "ON (really capturing)" else "off", if (ls.micIsOn) Theme.green else Theme.text))
+        if (WakeHub.engine.isNotEmpty()) c.addView(ui.row("Recogniser", WakeHub.engine))
+
+        val controls = ui.horizontal()
+        controls.addView(ui.button("START", accent = ls.canStart) { host.startWake() }.apply { isEnabled = ls.canStart }, ui.weighted(2))
+        controls.addView(ui.button("STOP") { host.stopWake() }.apply { isEnabled = ls.canStop }, ui.weighted(2))
+        controls.addView(ui.button("RESTART") { host.restartWake() }.apply { isEnabled = ls.canRestart }, ui.weighted(2))
+        c.addView(controls)
+        val paused = WakeHub.state == WakeState.PAUSED
+        if (WakeHub.state == WakeState.LISTENING || WakeHub.state == WakeState.COMMAND_LISTENING || paused) {
+            c.addView(ui.button(if (paused) "Resume listening" else "Pause listening (mic off)") { host.toggleWakePause() }, ui.lp().apply { topMargin = ui.dp(4) })
+        }
+
         c.addView(ui.text("Wake phrase", 12f, Theme.muted).apply { setPadding(0, ui.dp(8), 0, ui.dp(2)) })
         c.addView(phraseField)
         val presets = ui.horizontal()
         WakePhraseValidator.DEFAULTS.forEach { p -> presets.addView(ui.button(p) { phraseField.setText(p) }, ui.weighted(2)) }
         c.addView(presets)
-        val actions = ui.horizontal()
-        actions.addView(ui.button("Save phrase", accent = true) { savePhrase() }, ui.weighted(2))
-        actions.addView(ui.button(if (WakeHub.state == WakeState.PAUSED) "Resume" else "Pause") { host.toggleWakePause() }, ui.weighted(2))
-        c.addView(actions)
+        c.addView(ui.button("Save phrase", accent = true) { savePhrase() }, ui.lp().apply { topMargin = ui.dp(4) })
         c.addView(ui.note("A new phrase takes effect on the next listening cycle. Use 2 words (like \"hey raza\") to avoid false triggers. Urdu phrases switch the recogniser to Urdu."))
+
+        c.addView(ui.text("HOW TO KEEP IT LISTENING (Android 13+)", 11f, Theme.cyan, true).apply { setPadding(0, ui.dp(10), 0, ui.dp(2)) })
         c.addView(
             ui.note(
-                "Honest limits: this uses Android's speech recogniser, not a low-power hotword chip, so it uses more battery and can miss the phrase in noise. " +
-                    "It can only be started while the app is open, stops after a reboot, and some phone makers' battery managers may kill it. " +
-                    "While it runs you will always see a notification and Android's microphone indicator.",
+                "1. Allow Microphone and Notifications (Settings > Permissions below). Without Notifications Android may hide the \"microphone is on\" notice.\n" +
+                    "2. Tap START while RAZA AI is open. Android only lets a microphone service start while the app is on screen.\n" +
+                    "3. Then press Home or remove RAZA from Recent Apps: listening continues, and the notification stays.\n" +
+                    "4. Tap \"Allow background use\" below so Android's battery manager ends RAZA less often.\n" +
+                    "5. On Xiaomi, Oppo, Vivo, Realme, Infinix, Tecno or Samsung, also allow Autostart / \"No restrictions\" for RAZA AI in the phone's own battery or app settings, and lock RAZA in Recent Apps if your phone offers that.",
+            ),
+        )
+        c.addView(ui.button("Allow background use (battery)") { host.requestIgnoreBattery() })
+        c.addView(
+            ui.note(
+                "Honest limits: this uses Android's speech recogniser, not a hotword chip, so it costs battery and can miss the phrase in noise. " +
+                    "RAZA records, saves and uploads nothing; on Android 13+ it uses the on-device recogniser when your phone has one (the line above says which is active), otherwise Android's speech service may use the network. " +
+                    "Force-stopping RAZA from Settings, a cleaner app or the battery manager stops listening, and Android will not let RAZA restart the microphone by itself afterwards (and not after a reboot). " +
+                    "In those cases RAZA shows STOPPED here and posts a \"not listening, tap to turn on\" notification. A notification and Android's microphone indicator are always visible while it is on.",
             ),
         )
         return c

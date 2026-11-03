@@ -43,7 +43,10 @@ class AssistantScreen(ui: Ui, session: AssistantSession, host: Host) : Screen(ui
         setPadding(ui.dp(12), ui.dp(10), ui.dp(12), ui.dp(10))
     }
     private val micButton = ui.button("MIC", accent = true) { onMic() }
-    private val wakeButton = ui.button("WAKE") { host.toggleWake() }
+    private val wakeButton = ui.button("WAKE") {
+        val ls = host.listenStatus()
+        if (ls.severity == com.raza.ai.core.Severity.BAD && host.settings.wakeEnabled && WakeHub.state == WakeState.OFF) host.restartWake() else host.toggleWake()
+    }
     private val langButton = ui.button("") { cycleLanguage() }
 
     private var shownCount = -1
@@ -146,16 +149,14 @@ class AssistantScreen(ui: Ui, session: AssistantSession, host: Host) : Screen(ui
             },
         )
 
-        wakeText.text = when (WakeHub.state) {
-            WakeState.OFF -> "WAKE PHRASE: off"
-            WakeState.STARTING -> "WAKE PHRASE: starting..."
-            WakeState.LISTENING -> "WAKE PHRASE: say \"${host.settings.wakePhrase}\""
-            WakeState.COMMAND_LISTENING -> "WAKE PHRASE: heard you"
-            WakeState.PAUSED -> "WAKE PHRASE: paused"
-            WakeState.ERROR -> "WAKE PHRASE ERROR: ${WakeHub.error ?: "unknown"}"
+        val ls = host.listenStatus()
+        wakeText.text = "BACKGROUND: ${ls.label}"
+        wakeText.setTextColor(Theme.severityColor(ls.severity))
+        wakeButton.text = when {
+            ls.micIsOn || WakeHub.state == WakeState.STARTING || WakeHub.state == WakeState.PAUSED -> "WAKE: ON"
+            ls.severity == com.raza.ai.core.Severity.BAD && host.settings.wakeEnabled -> "WAKE: RESTART"
+            else -> "WAKE: OFF"
         }
-        wakeText.setTextColor(if (WakeHub.state == WakeState.ERROR) Theme.red else Theme.muted)
-        wakeButton.text = if (WakeHub.state == WakeState.OFF || WakeHub.state == WakeState.ERROR) "WAKE: OFF" else "WAKE: ON"
         partial.text = session.partial
 
         val pending = session.pending()

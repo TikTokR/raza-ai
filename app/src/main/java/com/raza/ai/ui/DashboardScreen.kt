@@ -59,20 +59,11 @@ class DashboardScreen(ui: Ui, session: AssistantSession, host: Host) : Screen(ui
             else -> Theme.amber
         }
         c.addView(ui.row("Cloud AI", conn.label, connColor))
-        c.addView(
-            ui.row(
-                "Wake phrase",
-                when (WakeHub.state) {
-                    WakeState.OFF -> "off"
-                    WakeState.STARTING -> "starting"
-                    WakeState.LISTENING -> "listening"
-                    WakeState.COMMAND_LISTENING -> "heard you"
-                    WakeState.PAUSED -> "paused"
-                    WakeState.ERROR -> "error"
-                },
-                if (WakeHub.state == WakeState.ERROR) Theme.red else Theme.text,
-            ),
-        )
+        val ls = host.listenStatus()
+        c.addView(ui.row("Background listening", ls.label, Theme.severityColor(ls.severity)))
+        if (ls.severity == com.raza.ai.core.Severity.BAD || ls.severity == com.raza.ai.core.Severity.WARN) {
+            c.addView(ui.note(ls.detail))
+        }
         c.addView(ui.button("Refresh connection") { session.refreshConnection() }, ui.lp().apply { topMargin = ui.dp(6) })
         return c
     }

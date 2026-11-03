@@ -27,6 +27,10 @@ object WakeHub {
     var error: String? = null
         private set
 
+    /** Which recogniser the service is using right now, e.g. "on-device". Empty when not listening. */
+    @Volatile
+    var engine: String = ""
+
     @Volatile
     var control: Control? = null
 
