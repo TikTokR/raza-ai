@@ -55,6 +55,7 @@ class WakeWordService : Service(), WakeHub.Control {
     private var pausedByUser = false
     private var usingOnDevice = false
     private var onDeviceBroken = false
+    private var offlineHintBroken = false
     private var lastStartId = 0
 
     private val listenRunnable = Runnable { listen() }
@@ -105,6 +106,7 @@ class WakeWordService : Service(), WakeHub.Control {
         machine.stop()
         pausedByUser = false
         onDeviceBroken = false
+        offlineHintBroken = false
         settings.wakeEnabled = true
         startWake()
     }
@@ -261,7 +263,7 @@ class WakeWordService : Service(), WakeHub.Control {
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE, tag)
                     putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                     putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
-                    putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true) // privacy: avoid streaming ambient audio when possible
+                    putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, settings.preferOfflineSpeech && !offlineHintBroken) // privacy: avoid streaming ambient audio when possible
                     putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, packageName)
                 },
             )
@@ -307,6 +309,15 @@ class WakeWordService : Service(), WakeHub.Control {
             onDeviceBroken = true
             scheduleListen(200)
             return
+        }
+        if (code == 12 || code == 13) {
+            if (!offlineHintBroken && settings.preferOfflineSpeech) {
+                // The offline language pack is missing; retry once letting Android use its online speech service.
+                offlineHintBroken = true
+                Log.i(TAG, "offline language data missing; retrying without the offline hint")
+                scheduleListen(200)
+                return
+            }
         }
         when (RecognizerErrors.classify(code)) {
             RecognizerErrors.Action.RETRY_QUICK -> {
