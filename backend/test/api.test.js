@@ -1,7 +1,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createApp, parseTokens } from "../src/app.js";
-import { createAnthropicProvider, ProviderError } from "../src/ai.js";
+import { createAnthropicProvider, createOpenAIProvider, createProviderFromEnv, ProviderError } from "../src/ai.js";
 
 const USER = "user-token-0123456789abcdef";
 const ADMIN = "admin-token-0123456789abcdef";
@@ -260,4 +260,54 @@ test("responses carry security headers and no server fingerprint", async () => {
   assert.equal(r.headers.get("x-content-type-options"), "nosniff");
   assert.equal(r.headers.get("cache-control"), "no-store");
   assert.equal(r.headers.get("x-powered-by"), null);
+});
+
+// ---------- OpenAI adapter ----------
+test("openai adapter: no key -> PROVIDER_UNAVAILABLE", async () => {
+  const p = createOpenAIProvider({ apiKey: "", model: "m", timeoutMs: 100 });
+  await assert.rejects(p.reply({ message: "hi", language: "English", history: [] }), (e) => e.code === "PROVIDER_UNAVAILABLE");
+});
+
+test("openai adapter: correct URL, bearer auth, system prompt + history, parses reply", async () => {
+  let url, opts;
+  const p = createOpenAIProvider({ apiKey: SECRET_KEY, model: "gpt-x", timeoutMs: 500, fetchImpl: async (u, o) => { url = u; opts = o; return { ok: true, json: async () => ({ choices: [{ message: { content: " salam " } }] }) }; } });
+  const out = await p.reply({ message: "hi", language: "Urdu", history: [{ role: "user", content: "a" }] });
+  assert.equal(out, "salam");
+  assert.equal(url, "https://api.openai.com/v1/chat/completions");
+  assert.equal(opts.headers.authorization, `Bearer ${SECRET_KEY}`);
+  const body = JSON.parse(opts.body);
+  assert.equal(body.model, "gpt-x");
+  assert.equal(body.messages[0].role, "system");
+  assert.ok(body.messages[0].content.includes("Urdu"));
+  assert.deepEqual(body.messages.slice(1), [{ role: "user", content: "a" }, { role: "user", content: "hi" }]);
+});
+
+test("openai adapter: HTTP error, empty reply, network failure and timeout are reported, never faked", async () => {
+  const mk = (f) => createOpenAIProvider({ apiKey: SECRET_KEY, model: "m", timeoutMs: 50, fetchImpl: f });
+  const ask = (p) => p.reply({ message: "hi", language: "English", history: [] });
+  await assert.rejects(ask(mk(async () => ({ ok: false, status: 429 }))), (e) => e.code === "PROVIDER_ERROR" && !e.message.includes(SECRET_KEY));
+  await assert.rejects(ask(mk(async () => ({ ok: true, json: async () => ({ choices: [] }) }))), (e) => e.code === "PROVIDER_ERROR");
+  await assert.rejects(ask(mk(async () => { throw new TypeError("fetch failed"); })), (e) => e.code === "PROVIDER_ERROR");
+  const hang = (u, o) => new Promise((_, rej) => o.signal.addEventListener("abort", () => rej(Object.assign(new Error("a"), { name: "AbortError" }))));
+  await assert.rejects(ask(mk(hang)), (e) => e.code === "PROVIDER_TIMEOUT");
+});
+
+test("provider selection from env: explicit, by key, and default", async () => {
+  const calls = [];
+  const f = async (u) => { calls.push(u); return { ok: true, json: async () => ({ choices: [{ message: { content: "ok" } }], content: [{ type: "text", text: "ok" }] }) }; };
+  const ask = (env) => createProviderFromEnv(env, f).reply({ message: "hi", language: "English", history: [] });
+  await ask({ OPENAI_API_KEY: "k" });
+  await ask({ ANTHROPIC_API_KEY: "k" });
+  await ask({ ANTHROPIC_API_KEY: "k", OPENAI_API_KEY: "k2", AI_PROVIDER: "openai" });
+  assert.deepEqual(calls, ["https://api.openai.com/v1/chat/completions", "https://api.anthropic.com/v1/messages", "https://api.openai.com/v1/chat/completions"]);
+  await assert.rejects(ask({}), (e) => e.code === "PROVIDER_UNAVAILABLE");
+});
+
+test("diagnostics reports providerConfigured when only OPENAI_API_KEY is set", async () => {
+  const s = await start({ env: { ANTHROPIC_API_KEY: "", OPENAI_API_KEY: SECRET_KEY } });
+  const r = await fetch(s.base + "/api/v1/diagnostics", { headers: { authorization: `Bearer ${ADMIN}` } });
+  const j = await r.json();
+  assert.equal(j.providerConfigured, true);
+  assert.ok(!JSON.stringify(j).includes(SECRET_KEY));
+  await stop(s);
 });

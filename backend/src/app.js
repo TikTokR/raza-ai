@@ -147,7 +147,7 @@ export function createApp({ env = {}, provider, log = () => {}, now = () => Date
         if (principal.role !== "admin") return fail(res, 403, "FORBIDDEN", "Admin role required", requestId);
         return send(res, 200, {
           uptimeSeconds: Math.round((now() - startedAt) / 1000),
-          providerConfigured: Boolean(env.ANTHROPIC_API_KEY),
+          providerConfigured: Boolean(env.ANTHROPIC_API_KEY || env.OPENAI_API_KEY),
           authConfigured: tokens.size > 0,
           rateLimitPerMinute: limit,
           requestId,

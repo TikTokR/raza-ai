@@ -14,6 +14,7 @@ It prints a PHONE token (role user) and a `RAZA_API_TOKENS=` line. The line cont
 | `RAZA_API_TOKENS` | the line printed above (`phonetoken:user,admintoken:admin`) |
 | `ANTHROPIC_API_KEY` | your own provider key (server only) |
 | `NODE_ENV` | `production` |
+| `AI_PROVIDER`, `OPENAI_API_KEY`, `OPENAI_MODEL` | optional: use OpenAI instead of Anthropic (`AI_PROVIDER=openai`, your own key, model default `gpt-4o-mini`). Set only one provider's key. |
 
 Build with `backend/Dockerfile` (listens on `$PORT`, default 8080). Or run `node src/server.js` from `backend/`. Point the host's health check at `/api/v1/health`. In production the server refuses requests if `RAZA_API_TOKENS` is empty.
 
