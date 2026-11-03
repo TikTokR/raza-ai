@@ -11,6 +11,23 @@ Package `com.raza.ai`, Kotlin, minSdk 26, target/compile SDK 35, JDK 17.
 - **Online / offline**: offline it handles local commands, tasks and notes. Online it asks your backend (`/api/v1/assistant`, `/api/v1/command-plan`). It never pretends the cloud answered when it did not.
 - **Memory**: tasks, "remember that..." notes, chat history, and an action log; all viewable and deletable in Settings. Notes never accept passwords, PINs, OTPs or card numbers.
 
+## Device-control commands (English / Urdu examples)
+| Say | What happens | Confirmation |
+|---|---|---|
+| "send whatsapp message to Ali saying I'm late" / "علی کو واٹس ایپ پر میسج بھیجو کہ ..." | Finds Ali in Contacts (never guesses between two people), opens the chat with the text, presses Send if Accessibility is on | YES/NO + screen lock |
+| "play despacito on youtube" / "یوٹیوب پر ... چلاؤ" | Opens YouTube search, taps the first video if Accessibility is on | YES/NO |
+| "open tiktok", then "next video" / "previous video" / "scroll down" | Opens the app; swipes via Accessibility | open: YES/NO; swipes run at once |
+| "go back", "go home", "recent apps" | Android global actions via Accessibility | none |
+| "call 0300..." | Opens the dialer (or places the call if you enable direct calls) | YES/NO + screen lock |
+| "set a timer for 10 minutes", "remind me in 2 hours to ...", "remind me at 7:30 pm to ...", "set alarm for 7:30" | Clock app timer/alarm | YES/NO |
+| "volume up", "play music", "open wifi settings", "open <app>" | Android APIs | YES/NO |
+
+## Test on your phone (nothing below has been run on a device yet)
+1. Settings > Permissions: grant Microphone, Contacts. Optional: Phone (direct calls).
+2. Settings > Accessibility > open accessibility settings > enable RAZA AI. If greyed out: App info > three dots > Allow restricted settings.
+3. Say or type each command above with a real contact and watch the result text; RAZA only claims what Android or the screen confirmed.
+4. Report anything that fails with the exact on-screen message.
+
 ## Build
 ```
 gradle :app:testDebugUnitTest      # unit tests (+ API integration tests if RAZA_IT_URL/RAZA_IT_TOKEN are set)
