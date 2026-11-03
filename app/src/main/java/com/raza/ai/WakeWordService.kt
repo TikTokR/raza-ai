@@ -16,6 +16,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.util.Log
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -75,6 +76,7 @@ class WakeWordService : Service(), WakeHub.Control {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         lastStartId = startId
+        Log.i(TAG, "onStartCommand action=${intent?.action} state=${machine.state}")
         when (intent?.action) {
             ACTION_STOP -> shutdown(byUser = true)
             ACTION_USER_PAUSE -> userPause()
@@ -155,6 +157,7 @@ class WakeWordService : Service(), WakeHub.Control {
     }
 
     private fun shutdown(byUser: Boolean) {
+        Log.i(TAG, "shutdown byUser=$byUser")
         main.removeCallbacksAndMessages(null)
         destroyRecognizer()
         machine.stop()
@@ -174,6 +177,7 @@ class WakeWordService : Service(), WakeHub.Control {
     }
 
     override fun onDestroy() {
+        Log.i(TAG, "onDestroy state=${machine.state}")
         main.removeCallbacksAndMessages(null)
         destroyRecognizer()
         if (WakeHub.control === this) WakeHub.control = null
@@ -297,6 +301,7 @@ class WakeWordService : Service(), WakeHub.Control {
     }
 
     private fun handleError(code: Int) {
+        Log.i(TAG, "recognizer error=$code onDevice=$usingOnDevice state=${machine.state}")
         if (usingOnDevice && (code == 12 || code == 13)) {
             // The on-device model does not cover this language: fall back to Android's speech service and say so.
             onDeviceBroken = true
@@ -321,6 +326,7 @@ class WakeWordService : Service(), WakeHub.Control {
     }
 
     private fun fail(message: String) {
+        Log.w(TAG, "fail: $message")
         main.removeCallbacksAndMessages(null)
         destroyRecognizer()
         machine.onError(message)
@@ -413,6 +419,7 @@ class WakeWordService : Service(), WakeHub.Control {
         const val ACTION_USER_RESUME = "com.raza.ai.action.WAKE_USER_RESUME"
         const val ACTION_RESTART = "com.raza.ai.action.WAKE_RESTART"
         const val EXTRA_FROM_WAKE = "from_wake"
+        private const val TAG = "RazaWake"
         private const val NOTIFICATION_ID = 501
         private const val ALERT_ID = 502
         private const val MAX_HARD_FAILURES = 8
