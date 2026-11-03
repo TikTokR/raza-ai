@@ -222,7 +222,7 @@ jobs:
           force-avd-creation: false
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           disable-animations: true
-          script: gradle :app:connectedDebugAndroidTest --stacktrace
+          script: bash ci/run-emulator-tests.sh
 
       - name: Summarize emulator test results
         if: always()
@@ -248,4 +248,5 @@ jobs:
           path: |
             app/build/reports/androidTests
             app/build/outputs/androidTest-results
+            app/build/emulator-logs
           if-no-files-found: warn
