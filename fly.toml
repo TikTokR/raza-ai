@@ -1,6 +1,5 @@
 # Fly.io settings for the RAZA AI backend. Secrets (RAZA_API_TOKENS, ANTHROPIC_API_KEY / OPENAI_API_KEY)
 # are NOT stored here; set them in Fly's Secrets page.
-app = "raza-ai"
 primary_region = "sin"
 
 [build]
