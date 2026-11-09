@@ -1,0 +1,28 @@
+# Fly.io settings for the RAZA AI backend. Secrets (RAZA_API_TOKENS, ANTHROPIC_API_KEY / OPENAI_API_KEY)
+# are NOT stored here; set them in Fly's Secrets page.
+app = "raza-ai"
+primary_region = "sin"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8080"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    timeout = "5s"
+    method = "GET"
+    path = "/api/v1/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
