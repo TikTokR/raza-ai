@@ -1,27 +1,31 @@
-# Fly.io settings for the RAZA AI backend. Secrets (RAZA_API_TOKENS, ANTHROPIC_API_KEY / OPENAI_API_KEY)
-# are NOT stored here; set them in Fly's Secrets page.
-primary_region = "sin"
+# fly.toml app configuration file generated for raza-ai-mic1pg on 2026-11-09T12:07:55Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'raza-ai-mic1pg'
+primary_region = 'sin'
 
 [build]
-  dockerfile = "Dockerfile"
+  dockerfile = 'Dockerfile'
 
 [env]
-  PORT = "8080"
+  PORT = '8080'
 
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = "stop"
+  auto_stop_machines = 'stop'
   auto_start_machines = true
   min_machines_running = 0
 
   [[http_service.checks]]
-    grace_period = "10s"
-    interval = "30s"
-    timeout = "5s"
-    method = "GET"
-    path = "/api/v1/health"
+    interval = '30s'
+    timeout = '5s'
+    grace_period = '10s'
+    method = 'GET'
+    path = '/api/v1/health'
 
 [[vm]]
-  size = "shared-cpu-1x"
-  memory = "256mb"
+  size = 'shared-cpu-1x'
+  memory = '256mb'
